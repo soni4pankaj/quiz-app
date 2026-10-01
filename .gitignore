@@ -1,0 +1,6 @@
+# Dependency directory - DO NOT upload to Git/Render
+node_modules/
+
+# Local environment/log files
+*.log
+.env

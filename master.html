@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State Bank Academy-Quiz</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      transition: background-color 0.3s ease;
+    }
+
+    /* DARK MODE FOR CONTAINER WHEN QUIZ ENDS */
+    .container.dark-theme {
+      background: rgba(0, 0, 0, 0.85);
+      box-shadow: 0 4px 20px rgba(255, 255, 255, 0.2);
+    }
+
+    h1, h2, h3 {
+      color: #007bff;
+      text-align: center;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+      width: 100%;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .room-section, .game-section {
+      margin-top: 20px;
+    }
+    #qrcode {
+      margin: 15px 0;
+      text-align: center;
+    }
+    .hidden {
+      display: none;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      background: #e9ecef;
+      margin: 5px 0;
+      padding: 8px 12px;
+      border-radius: 4px;
+    }
+
+    /* SCROLLABLE PARTICIPANT LIST STYLES */
+    .player-scroll-box {
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      background-color: #fafafa;
+      margin: 15px 0;
+    }
+
+    #player-list li {
+      background-color: #e7f3ff;
+      border: 1px solid #b6d4fe;
+      color: #004085;
+      font-weight: bold;
+    }
+
+    /* Dark Scoreboard Styling */
+    .scoreboard-dark {
+      color: #ffffff;
+      padding: 10px;
+      border-radius: 8px;
+    }
+
+    .scoreboard-dark h2 {
+      color: #ffd700; /* Gold color title */
+    }
+
+/* Standard Score Item Spacing */
+#score-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+}
+
+    /* Trophy Image Style */
+    .trophy-icon {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      vertical-align: middle;
+      margin-right: 10px;
+    }
+
+    /* Winner List Item Dark Theme */
+    .dark-score-item {
+      background: #1a1a1a !important;
+      color: #ffffff !important;
+      border: 1px solid #333 !important;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 15px !important;
+      margin-bottom: 8px;
+      font-size: 17px;
+    }
+
+    /* Background Fireworks Container */
+    .fireworks-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: url('images/fireworks.gif') center center / cover no-repeat;
+      z-index: -1;
+      pointer-events: none;
+      display: none;
+    }
+
+    .fireworks-bg.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <!-- Fireworks Background Overlay -->
+  <div id="fireworks-container" class="fireworks-bg"></div>
+
+  <div class="container" id="main-container">
+    <h1>Quiz Dashboard</h1>
+
+    <!-- Room Creation Section -->
+    <div id="room-setup" class="room-section">
+      <button id="create-room-btn">Create Quiz Room</button>
+    </div>
+
+    <!-- Active Room Display -->
+    <div id="room-view" class="room-section hidden">
+      <h2>Room ID: <span id="display-room-id"></span></h2>
+      <p style="text-align: center;">Scan the QR code below to join as a participant:</p>
+      <div id="qrcode"></div>
+      
+      <!-- Connected Players Scroll Container -->
+      <h3>Joined Participants (<span id="player-count">0</span>)</h3>
+      <div class="player-scroll-box">
+        <ul id="player-list">
+          <li>Waiting for players to join...</li>
+        </ul>
+      </div>
+
+      <button id="next-question-btn">Start / Next Question</button>
+    </div>
+
+    <!-- Live Game Controls & Display Section -->
+    <div id="game-section" class="game-section hidden">
+      
+      <!-- Question Container -->
+      <div id="question-box">
+        <h3 id="question-title">Questioning...</h3>
+        <p style="text-align: right;"><strong>Timer:</strong> <span id="timer-display">15</span>s</p>
+        <ul id="options-list"></ul>
+        <button id="show-leaderboard-btn">Display Score / Leaderboard</button>
+      </div>
+
+      <!-- Scoreboard Container -->
+      <div id="scoreboard-box" class="hidden">
+        <h2>Scoreboard</h2>
+        <ul id="score-list"></ul>
+        <button id="next-from-score-btn">Next Question</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Socket.io Client Script -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    let currentRoomId = null;
+
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const roomSetup = document.getElementById('room-setup');
+    const roomView = document.getElementById('room-view');
+    const displayRoomId = document.getElementById('display-room-id');
+    const qrcodeContainer = document.getElementById('qrcode');
+    const playerList = document.getElementById('player-list');
+    const playerCount = document.getElementById('player-count');
+    
+    const nextQuestionBtn = document.getElementById('next-question-btn');
+    const nextFromScoreBtn = document.getElementById('next-from-score-btn');
+    const gameSection = document.getElementById('game-section');
+    const questionBox = document.getElementById('question-box');
+    const scoreboardBox = document.getElementById('scoreboard-box');
+    const mainContainer = document.getElementById('main-container');
+    
+    const questionTitle = document.getElementById('question-title');
+    const timerDisplay = document.getElementById('timer-display');
+    const optionsList = document.getElementById('options-list');
+    const scoreList = document.getElementById('score-list');
+    const showLeaderboardBtn = document.getElementById('show-leaderboard-btn');
+
+    // Helper function to get trophy icon HTML based on rank
+    function getTrophyIcon(rank) {
+      if (rank === 1) return `<img src="images/rank-1.png" alt="1st Place" class="trophy-icon">`;
+      if (rank === 2) return `<img src="images/rank-2.png" alt="2nd Place" class="trophy-icon">`;
+      if (rank === 3) return `<img src="images/rank-3.png" alt="3rd Place" class="trophy-icon">`;
+      return '';
+    }
+
+// Render leaderboard function with clean spacing
+function renderLeaderboard(leaderboard, isFinal = false) {
+  scoreList.innerHTML = leaderboard.map((p, index) => {
+    const rank = index + 1;
+    const trophy = getTrophyIcon(rank);
+    return `
+      <li class="${isFinal ? 'dark-score-item' : ''}" style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="display: inline-flex; align-items: center; gap: 8px;">
+          ${trophy} Rank ${rank}: ${p.name}
+        </span>
+        <strong style="margin-left: 20px;">${p.score} pts</strong>
+      </li>
+    `;
+  }).join('');
+}
+    createRoomBtn.addEventListener('click', () => {
+      currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
+      socket.emit('create_room', currentRoomId);
+    });
+
+    socket.on('room_created', ({ roomId, qrCode }) => {
+      roomSetup.classList.add('hidden');
+      roomView.classList.remove('hidden');
+      displayRoomId.textContent = roomId;
+      qrcodeContainer.innerHTML = `<img src="${qrCode}" alt="Join QR Code" style="max-width:200px;">`;
+    });
+
+    socket.on('player_list_update', (players) => {
+      playerCount.textContent = players.length;
+      if (players.length === 0) {
+        playerList.innerHTML = '<li>Waiting for players to join...</li>';
+        return;
+      }
+      playerList.innerHTML = players.map((p, index) => `
+        <li>👤 ${index + 1}. ${p.name}</li>
+      `).join('');
+    });
+
+    nextQuestionBtn.addEventListener('click', () => {
+      roomView.classList.add('hidden');
+      gameSection.classList.remove('hidden');
+      socket.emit('next_question', currentRoomId);
+    });
+
+    nextFromScoreBtn.addEventListener('click', () => {
+      scoreboardBox.classList.add('hidden');
+      questionBox.classList.remove('hidden');
+      socket.emit('next_question', currentRoomId);
+    });
+
+    socket.on('display_question', (data) => {
+      scoreboardBox.classList.add('hidden');
+      questionBox.classList.remove('hidden');
+      questionTitle.textContent = `Q${data.questionNumber}: ${data.question}`;
+      optionsList.innerHTML = data.options.map((opt, index) => `<li>${index + 1}. ${opt}</li>`).join('');
+    });
+
+    socket.on('timer_tick', (timeLeft) => {
+      timerDisplay.textContent = timeLeft;
+    });
+
+    showLeaderboardBtn.addEventListener('click', () => {
+      socket.emit('show_leaderboard', currentRoomId);
+    });
+
+    socket.on('leaderboard_data', (leaderboard) => {
+      questionBox.classList.add('hidden');
+      scoreboardBox.classList.remove('hidden');
+      renderLeaderboard(leaderboard, false);
+    });
+
+    // Quiz Ended Handler
+    socket.on('quiz_ended', (finalLeaderboard) => {
+      questionBox.classList.add('hidden');
+      scoreboardBox.classList.remove('hidden');
+   
+// Hide the "Quiz Dashboard" main heading
+  const mainTitle = document.querySelector('#main-container h1');
+  if (mainTitle) {
+    mainTitle.style.display = 'none';
+  }
+   
+      // Activate Fireworks and Dark Modes
+      const fireworksBg = document.getElementById('fireworks-container');
+      if (fireworksBg) {
+        fireworksBg.classList.add('active');
+      }
+
+      mainContainer.classList.add('dark-theme');
+      scoreboardBox.classList.add('scoreboard-dark');
+      
+      document.querySelector('#scoreboard-box h2').textContent = "🏆 Quiz Finished! Final Leaderboard 🏆";
+
+      // Render dark list items with rank 1-3 PNG images
+      renderLeaderboard(finalLeaderboard, true);
+      
+      nextFromScoreBtn.style.display = 'none';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+[
+  {
+    "id": 1,
+    "question": "Which is the national aquatic animal of India?",
+    "options": [
+      "Ganges River Dolphin",
+      "Olive Ridley Sea Turtle",
+      "Gharial",
+      "Dugong"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 2,
+    "question": "Which state in India has the longest coastline?",
+    "options": [
+      "Tamil Nadu",
+      "Gujarat",
+      "Maharashtra",
+      "Andhra Pradesh"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 3,
+    "question": "The classical dance form 'Kathakali' originated in which Indian state?",
+    "options": [
+      "Tamil Nadu",
+      "Karnataka",
+      "Kerala",
+      "Andhra Pradesh"
+    ],
+    "answer": 2
+  },
+  {
+    "id": 4,
+    "question": "Who was the first President of independent India?",
+    "options": [
+      "Dr. S. Radhakrishnan",
+      "Dr. Rajendra Prasad",
+      "Pandit Jawaharlal Nehru",
+      "Sardar Vallabhbhai Patel"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 5,
+    "question": "Which line separates India and China?",
+    "options": [
+      "Radcliffe Line",
+      "Durand Line",
+      "McMahon Line",
+      "24th Parallel"
+    ],
+    "answer": 2
+  },
+  {
+    "id": 6,
+    "question": "Which Indian city is known as the 'Pink City'?",
+    "options": [
+      "Udaipur",
+      "Jodhpur",
+      "Jaipur",
+      "Jaisalmer"
+    ],
+    "answer": 2
+  },
+  {
+    "id": 7,
+    "question": "Which fundamental right was removed from the list of Fundamental Rights by the 44th Constitutional Amendment Act, 1978?",
+    "options": [
+      "Right to Freedom of Speech",
+      "Right to Equality",
+      "Right to Constitutional Remedies",
+      "Right to Property"
+    ],
+    "answer": 3
+  },
+  {
+    "id": 8,
+    "question": "Gir National Park in Gujarat is famous for preserving which animal?",
+    "options": [
+      "Bengal Tiger",
+      "Asiatic Lion",
+      "One-horned Rhinoceros",
+      "Snow Leopard"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 9,
+    "question": "The historic Dandi March led by Mahatma Gandhi was associated with which movement?",
+    "options": [
+      "Non-Cooperation Movement",
+      "Civil Disobedience Movement",
+      "Quit India Movement",
+      "Swadeshi Movement"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 10,
+    "question": "Which river is also known as the 'Dakshin Ganga' (Ganga of the South)?",
+    "options": [
+      "Krishna",
+      "Kaveri",
+      "Godavari",
+      "Narmada"
+    ],
+    "answer": 2
+  },
+  {
+    "id": 11,
+    "question": "Who was the first Indian to win a Nobel Prize?",
+    "options": [
+      "C. V. Raman",
+      "Rabindranath Tagore",
+      "Mother Teresa",
+      "Hargobind Khorana"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 12,
+    "question": "Which state is known as the 'Spices Garden of India'?",
+    "options": [
+      "Assam",
+      "Kerala",
+      "Karnataka",
+      "Andhra Pradesh"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 13,
+    "question": "Which Indian state has the highest forest cover by area?",
+    "options": [
+      "Arunachal Pradesh",
+      "Madhya Pradesh",
+      "Chhattisgarh",
+      "Odisha"
+    ],
+    "answer": 1
+  },
+  {
+    "id": 14,
+    "question": "In which year did India adopt its Constitution?",
+    "options": [
+      "1947",
+      "1948",
+      "1950",
+      "1952"
+    ],
+    "answer": 2
+  },
+  {
+    "id": 15,
+    "question": "Which mountain peak is the highest peak located entirely within India?",
+    "options": [
+      "Kangchenjunga",
+      "Nanda Devi",
+      "K2 (Godwin-Austen)",
+      "Kamet"
+    ],
+    "answer": 1
+  }
+]

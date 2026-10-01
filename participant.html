@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Participant</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1, h2 {
+      text-align: center;
+      color: #007bff;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-sizing: border-box;
+      font-size: 16px;
+    }
+    button {
+      width: 100%;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    .option-btn {
+      background-color: #28a745;
+      margin-bottom: 8px;
+    }
+    .option-btn:hover {
+      background-color: #218838;
+    }
+    .hidden {
+      display: none;
+    }
+    .status-msg {
+      text-align: center;
+      font-style: italic;
+      color: #666;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      background: #e9ecef;
+      margin: 5px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .my-stats {
+      background: #e7f3ff;
+      border: 1px solid #b6d4fe;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+    }
+
+/* Rules Container Styling */
+.rules-card {
+  background-color: #fff3cd; /* Soft yellow alert background */
+  border: 1px solid #ffeeba;
+  color: #856404;
+  padding: 15px 20px;
+  border-radius: 6px;
+  margin-top: 20px;
+}
+
+.rules-card h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #856404;
+  font-size: 16px;
+  text-align: left;
+}
+
+.rules-card ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.rules-card li {
+  background: transparent !important; /* Override default white li background */
+  padding: 4px 0 !important;
+  margin: 2px 0 !important;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>State Bank Academy</h1>
+
+    <!-- 1. Join Room Form -->
+<!-- 1. Join Room Form -->
+<div id="join-box">
+  <h2>Join Quiz</h2>
+  <input type="text" id="room-input" placeholder="Enter Room ID" class="hidden" />
+  <input type="text" id="name-input" placeholder="Enter Your Name" autofocus />
+  <button id="join-btn">Register</button>
+  <p id="error-msg" style="color: red; text-align: center;"></p>
+
+  <!-- Quiz Rules Box -->
+  <div class="rules-card">
+    <h3>📋 Quiz Instructions & Rules</h3>
+    <ol>
+      <li>Connect to the Wifi</li>
+      <li>Enter your full name</li>
+      <li>Time allotted to answer the question is max 15 seconds</li>
+      <li>Full score i.e. 15 marks awarded if correct answer in 5 seconds</li>
+      <li>Score 10 is awarded if correct answer in 10 seconds</li>
+      <li>Score 5 is awarded if correct answer in 15 seconds</li>
+      <li>Negative score of 5 for each wrong answer</li>
+      <li>There are 15 questions in the quiz</li>
+    </ol>
+  </div>
+</div>
+    <!-- 2. Waiting Screen -->
+    <div id="waiting-box" class="hidden">
+      <h2>Welcome, <span id="player-display-name"></span>!</h2>
+      <p class="status-msg">Waiting for the master to start the question...</p>
+    </div>
+
+    <!-- 3. Active Question View -->
+    <div id="question-box" class="hidden">
+      <h3 id="question-text">Loading question...</h3>
+      <p style="text-align: right;"><strong>Time Left:</strong> <span id="timer-display">15</span>s</p>
+      <div id="options-container"></div>
+      <p id="answer-status" class="status-msg"></p>
+    </div>
+
+    <!-- 4. Scoreboard / Leaderboard View -->
+    <div id="scoreboard-box" class="hidden">
+      <h2 id="scoreboard-title">Leaderboard</h2>
+      
+      <div class="my-stats">
+        <p><strong>Your Score:</strong> <span id="my-score">0</span> pts</p>
+        <p><strong>Round Time:</strong> <span id="my-round-time">N/A</span>s</p>
+        <p><strong>Total Time:</strong> <span id="my-total-time">0</span>s</p>
+      </div>
+
+    </div>
+
+<!-- Waiting State Container -->
+<div id="waiting-box">
+  <h3>Wait for the host to load the next question...</h3>
+</div>
+
+<!-- Final Game Over Container (Hidden by default) -->
+<div id="game-over-box" class="hidden" style="text-align: center;">
+  <h2>🎉 Quiz Completed! 🎉</h2>
+  <p>Thank you for participating!</p>
+  <div id="final-score-display"></div>
+</div>
+
+  </div>
+
+  <!-- Audio Elements -->
+  <audio id="bg-music" src="/sounds/quiz-bg.mp3" loop preload="auto"></audio>
+  <audio id="correct-sfx" src="/sounds/correct.mp3" preload="auto"></audio>
+  <audio id="wrong-sfx" src="/sounds/wrong.mp3" preload="auto"></audio>
+
+  <!-- Socket.io Script -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    // Audio Elements
+    const bgMusic = document.getElementById('bg-music');
+    const correctSfx = document.getElementById('correct-sfx');
+    const wrongSfx = document.getElementById('wrong-sfx');
+
+    // DOM Elements
+    const joinBox = document.getElementById('join-box');
+    const waitingBox = document.getElementById('waiting-box');
+    const questionBox = document.getElementById('question-box');
+    const scoreboardBox = document.getElementById('scoreboard-box');
+
+    const roomInput = document.getElementById('room-input');
+    const nameInput = document.getElementById('name-input');
+    const joinBtn = document.getElementById('join-btn');
+    const errorMsg = document.getElementById('error-msg');
+    const playerDisplayName = document.getElementById('player-display-name');
+
+    const questionText = document.getElementById('question-text');
+    const timerDisplay = document.getElementById('timer-display');
+    const optionsContainer = document.getElementById('options-container');
+    const answerStatus = document.getElementById('answer-status');
+    const scoreList = document.getElementById('score-list');
+
+    let currentRoomId = '';
+    let selectedBtnRef = null;
+
+    // Helper: Play SFX and lower (duck) background music volume
+    function playSoundEffect(audioElement) {
+      if (!audioElement) return;
+
+      if (bgMusic && !bgMusic.paused) {
+        bgMusic.volume = 0.2; // Lower BG music volume to 20%
+      }
+
+      audioElement.currentTime = 0; // Reset sound to start
+      audioElement.play().catch(err => console.log('SFX Play error:', err));
+
+      // Restore volume once the SFX finishes playing
+      audioElement.onended = () => {
+        if (bgMusic) bgMusic.volume = 1.0;
+      };
+    }
+
+    // Auto-fill Room ID if passed in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    if (roomParam) {
+      roomInput.value = roomParam;
+    }
+
+    // 1. Join Room Action
+    joinBtn.addEventListener('click', () => {
+      const roomId = roomInput.value.trim();
+      const name = nameInput.value.trim();
+
+      if (!roomId || !name) {
+        errorMsg.textContent = 'Please enter both Room ID and Name!';
+        return;
+      }
+
+      if (bgMusic) {
+        bgMusic.volume = 1.0;
+        bgMusic.play().catch(err => console.log('Autoplay prevented:', err));
+      }
+
+      currentRoomId = roomId;
+      socket.emit('join_room', { roomId, name });
+    });
+
+    // Successful Join
+    socket.on('joined_successfully', ({ roomId, name }) => {
+      playerDisplayName.textContent = name;
+      joinBox.classList.add('hidden');
+      waitingBox.classList.remove('hidden');
+    });
+
+    // Room Error Handling
+    socket.on('error_msg', (msg) => {
+      errorMsg.textContent = msg;
+    });
+
+    // 2. Question Received Listener
+    socket.on('display_question', (data) => {
+      waitingBox.classList.add('hidden');
+      scoreboardBox.classList.add('hidden');
+      questionBox.classList.remove('hidden');
+
+      answerStatus.textContent = '';
+      questionText.textContent = `Q${data.questionNumber}: ${data.question}`;
+      
+      optionsContainer.innerHTML = '';
+      data.options.forEach((opt, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'option-btn';
+        btn.textContent = opt;
+        btn.addEventListener('click', () => submitAnswer(index, btn));
+        optionsContainer.appendChild(btn);
+      });
+    });
+
+    // Submit Answer Action
+    function submitAnswer(selectedIndex, clickedBtn) {
+      selectedBtnRef = clickedBtn;
+
+      const buttons = optionsContainer.querySelectorAll('button');
+      buttons.forEach(btn => btn.disabled = true);
+
+      clickedBtn.style.backgroundColor = '#ffc107'; // Highlight selected option
+      clickedBtn.style.color = '#000';
+
+      socket.emit('submit_answer', {
+        roomId: currentRoomId,
+        selectedOption: selectedIndex
+      });
+    }
+
+    // 3. Answer Confirmation with SFX Trigger
+    socket.on('answer_confirmed', ({ isCorrect } = {}) => {
+      if (isCorrect === true) {
+        answerStatus.textContent = 'Correct Answer! 🎉';
+        playSoundEffect(correctSfx);
+        if (selectedBtnRef) {
+          selectedBtnRef.style.backgroundColor = '#28a745';
+          selectedBtnRef.style.color = '#fff';
+        }
+      } else if (isCorrect === false) {
+        answerStatus.textContent = 'Incorrect Answer! ❌';
+        playSoundEffect(wrongSfx);
+        if (selectedBtnRef) {
+          selectedBtnRef.style.backgroundColor = '#dc3545';
+          selectedBtnRef.style.color = '#fff';
+        }
+      } else {
+        answerStatus.textContent = 'Answer Submitted! Waiting for results...';
+      }
+    });
+
+    // 4. Timer Countdown Tick
+    socket.on('timer_tick', (timeLeft) => {
+      timerDisplay.textContent = timeLeft;
+    });
+
+    // 5. Leaderboard / Scoreboard
+    socket.on('leaderboard_data', (leaderboard) => {
+      questionBox.classList.add('hidden');
+      waitingBox.classList.add('hidden');
+      scoreboardBox.classList.remove('hidden');
+
+      const me = leaderboard.find(p => p.id === socket.id);
+
+      if (me) {
+        const myScoreEl = document.getElementById('my-score');
+        const myRoundTimeEl = document.getElementById('my-round-time');
+        const myTotalTimeEl = document.getElementById('my-total-time');
+
+        if (myScoreEl) myScoreEl.textContent = me.score;
+        if (myRoundTimeEl) myRoundTimeEl.textContent = me.lastRoundTime ? me.lastRoundTime.toFixed(2) : 'N/A (No Answer)';
+        if (myTotalTimeEl) myTotalTimeEl.textContent = me.totalTime ? me.totalTime.toFixed(2) : '0';
+      }
+
+      scoreList.innerHTML = leaderboard.map((p, index) => {
+        const isMe = p.id === socket.id;
+        return `
+          <li style="${isMe ? 'font-weight: bold; background: #d1ecf1;' : ''}">
+            Rank ${index + 1}: ${p.name} — ${p.score} pts
+          </li>
+        `;
+      }).join('');
+    });
+
+    // 6. Quiz Finished Event
+socket.on('quiz_ended', (data) => {
+  if (typeof bgMusic !== 'undefined' && bgMusic) {
+    bgMusic.pause();
+    bgMusic.currentTime = 0;
+  }
+
+  // Replace the entire inner body/card content with just the final message
+  const mainContent = document.getElementById('game-container') || document.querySelector('.container');
+  
+  if (mainContent) {
+    mainContent.innerHTML = `
+      <h1 style="color: #007bff; text-align: center;">State Bank Academy</h1>
+      <div style="text-align: center; margin-top: 40px; padding: 20px;">
+        <h2 style="color: #007bff; font-size: 24px;">🎉 Quiz Completed! 🎉</h2>
+        <p style="font-size: 18px; color: #555; margin-top: 15px;">Thank you for participating!</p>
+      </div>
+    `;
+  }
+});
+
+
+
+  </script>
+</body>
+</html>
