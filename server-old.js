@@ -22,7 +22,13 @@ const PUBLIC_URL = process.env.PUBLIC_URL || '';
 
 // Middleware & Static Files
 app.use(express.json());
+// Serve static files from the current directory
 app.use(express.static(__dirname));
+
+// Default route for http://localhost:4000/
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 const questionsFilePath = path.join(__dirname, 'quiz-questions.json');
 let questionTimer = null;
@@ -96,109 +102,103 @@ questions = readQuestionsFromFile();
 io.on('connection', (socket) => {
   
   // 1. Master creates a room
-	// server.js
-	socket.on('create_room', async (data) => {
-  // Support both object payload { roomId, mode } and legacy string roomId
-  const roomId = typeof data === 'object' ? data.roomId : data;
-  const mode = typeof data === 'object' ? data.mode : 'manual';
+  socket.on('create_room', async (roomId) => {
+    // Reload questions dynamically when a new room starts
+    questions = readQuestionsFromFile();
 
-  questions = readQuestionsFromFile();
-  socket.join(roomId);
-
-  const localIP = getLocalIpAddress();
-  const baseUrl = PUBLIC_URL ? PUBLIC_URL : `http://${localIP}:${PORT}`;
-  const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
-  const qrImage = await QRCode.toDataURL(joinUrl);
-
-  rooms[roomId] = {
-    currentQuestion: 0,
-    players: {},
-    answers: {},
-    mode: mode // Save room mode ('auto' or 'manual')
-  };
-
-  socket.emit('room_created', { roomId, qrCode: qrImage });
-});
+    socket.join(roomId);
 
 
 
-  // 2. Participant joins a room
-// Inside socket.on('join_room') in server.js
-socket.on('join_room', ({ roomId, name }) => {
-  const room = rooms[roomId];
-  if (!room) return socket.emit('error_msg', 'Room not found!');
 
-  socket.join(roomId);
-  room.players[socket.id] = { id: socket.id, name, score: 0 };
 
-  // Send the room's mode back to the joining participant
-  socket.emit('joined_successfully', { roomId, name, mode: room.mode });
+    // Join URL for participants
 
-  // Update master and everyone with current player list
-  io.to(roomId).emit('player_list_update', Object.values(room.players));
-});
+// Automatically detect incoming protocol & host from socket handshake header, or fallback to local IP
+    const hostHeader = socket.handshake.headers.host;
+    const protocol = socket.handshake.headers['x-forwarded-proto'] || 'http';
+    const localIP = getLocalIpAddress();
 
-// server.js helper function
-function loadQuestion(roomId) {
-  const room = rooms[roomId];
-  if (!room) return;
+    const baseUrl = PUBLIC_URL 
+      ? PUBLIC_URL 
+      : (hostHeader ? `${protocol}://${hostHeader}` : `http://${localIP}:${PORT}`);
 
-  if (questionTimer) clearInterval(questionTimer);
+    const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
 
-  // Check if all questions are finished
-  if (room.currentQuestion >= questions.length) {
-    const finalLeaderboard = getSortedLeaderboard(room);
-    io.to(roomId).emit('quiz_ended', finalLeaderboard);
-    return;
-  }
 
-  const q = questions[room.currentQuestion];
-  room.answers = {};
-  room.questionStartTime = Date.now();
 
-  io.to(roomId).emit('display_question', {
-    questionNumber: room.currentQuestion + 1,
-    question: q.question,
-    options: q.options
+    const qrImage = await QRCode.toDataURL(joinUrl);
+
+    rooms[roomId] = {
+      currentQuestion: 0,
+      players: {},
+      answers: {}
+    };
+
+    socket.emit('room_created', { roomId, qrCode: qrImage });
   });
 
-  room.currentQuestion += 1;
+  // 2. Participant joins a room
+  socket.on('join_room', ({ roomId, name }) => {
+    const room = rooms[roomId];
+    if (!room) return socket.emit('error_msg', 'Room not found!');
 
-  let timeLeft = 15;
-  io.to(roomId).emit('timer_tick', timeLeft);
+    socket.join(roomId);
+    room.players[socket.id] = { id: socket.id, name, score: 0 };
 
-  questionTimer = setInterval(() => {
-    timeLeft -= 1;
+    socket.emit('joined_successfully', { roomId, name });
+
+    // Update master and everyone with current player list
+    io.to(roomId).emit('player_list_update', Object.values(room.players));
+  });
+
+  // 3. Master clicks 'Next Question'
+// 3. Master clicks 'Next Question'
+  socket.on('next_question', (roomId) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    socket.join(roomId);
+
+    if (questionTimer) clearInterval(questionTimer);
+
+    if (room.currentQuestion >= questions.length) {
+      const finalLeaderboard = getSortedLeaderboard(room);
+      io.to(roomId).emit('quiz_ended', finalLeaderboard);
+      return;
+    }
+
+    const q = questions[room.currentQuestion];
+    room.answers = {}; // Reset round answers
+
+    // RECORD QUESTION START TIME INSIDE THE ROOM OBJECT
+    room.questionStartTime = Date.now();
+
+    io.to(roomId).emit('display_question', {
+      questionNumber: room.currentQuestion + 1,
+      question: q.question,
+      options: q.options
+    });
+
+    room.currentQuestion += 1;
+
+    let timeLeft = 15;
     io.to(roomId).emit('timer_tick', timeLeft);
 
-    if (timeLeft <= 0) {
-      clearInterval(questionTimer);
-      const leaderboard = getSortedLeaderboard(room);
-      io.to(roomId).emit('time_up');
-      io.to(roomId).emit('leaderboard_data', leaderboard);
+    questionTimer = setInterval(() => {
+      timeLeft -= 1;
+      io.to(roomId).emit('timer_tick', timeLeft);
 
-      // NON-STOP MODE: Wait 5 seconds on leaderboard, then load next question
-      if (room.mode === 'auto') {
-        setTimeout(() => {
-          loadQuestion(roomId);
-        }, 5000);
+      if (timeLeft <= 0) {
+        clearInterval(questionTimer);
+        const leaderboard = getSortedLeaderboard(room);
+        io.to(roomId).emit('time_up');
+        io.to(roomId).emit('leaderboard_data', leaderboard);
       }
-    }
-  }, 1000);
-}
+    }, 1000);
+  });
 
-
-// 3. Master clicks 'Next Question'
-// server.js
-socket.on('next_question', (roomId) => {
-  const room = rooms[roomId];
-  if (!room) return;
-  socket.join(roomId);
-
-  loadQuestion(roomId);
-});
-
-
+// 4. Participant submits an answer
 // 4. Participant submits an answer
   socket.on('submit_answer', ({ roomId, selectedOption }) => {
     const room = rooms[roomId];
@@ -243,25 +243,14 @@ socket.on('next_question', (roomId) => {
     socket.emit('answer_confirmed', { timeTaken, scoreGained, isCorrect });
 
     // Check if all players in the room have answered
-// Check if all players in the room have answered
-const totalPlayers = Object.keys(room.players).length;
-const answeredPlayers = Object.keys(room.answers).length;
+    const totalPlayers = Object.keys(room.players).length;
+    const answeredPlayers = Object.keys(room.answers).length;
 
-if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
-  if (questionTimer) clearInterval(questionTimer);
-
-  const leaderboard = getSortedLeaderboard(room);
-  io.to(roomId).emit('time_up');
-  io.to(roomId).emit('leaderboard_data', leaderboard);
-
-  // NON-STOP MODE: Wait 5 seconds on leaderboard when everyone answers early
-  if (room.mode === 'auto') {
-    setTimeout(() => {
-      loadQuestion(roomId);
-    }, 5000);
-  }
-}
-
+    if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
+      if (questionTimer) clearInterval(questionTimer);
+      const leaderboard = getSortedLeaderboard(room);
+      io.to(roomId).emit('leaderboard_data', leaderboard);
+    }
   });
 
 
@@ -284,13 +273,15 @@ if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
 });
 
 // ... update server.listen ...
-const PORT = 4000;
-const HOST = '0.0.0.0'; // Bind to all network interfaces
+// Dynamic Port Configuration for Render / Cloud Hosting
 
-server.listen(PORT, HOST, () => {
-  const localIP = getLocalIpAddress();
+//*************Live server testing*************
+//const PORT = process.env.PORT || 4000;
+//*************Testing end*************
+
+server.listen(PORT, () => {			// For global testing
+const localIP = getLocalIpAddress();
   console.log('----------------------------------------------------');
-  console.log(`Server running locally at: http://localhost:${PORT}`);
-  console.log(`Network Join Link: http://${localIP}:${PORT}/participant.html`);
-  console.log(`Master View: http://localhost:${PORT}/master.html`);
-  console.log('----------------------------------------------------');});
+  console.log(`Quiz Server is running on port: ${PORT}`);
+  console.log('----------------------------------------------------');
+});

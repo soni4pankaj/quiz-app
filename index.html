@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weekly-Quiz</title>
+  <title>State Bank Academy-Quiz</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -97,12 +97,12 @@
     }
 
 /* Standard Score Item Spacing */
-	#score-list li {
-	  display: flex;
-	  justify-content: space-between;
-	  align-items: center;
-	  padding: 10px 15px;
-	}
+#score-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+}
 
     /* Trophy Image Style */
     .trophy-icon {
@@ -152,22 +152,9 @@
     <h1>Quiz Dashboard</h1>
 
     <!-- Room Creation Section -->
-	<!-- master.html -->
-	<div id="room-setup" class="room-section">
-	  <h3>Select Play Mode:</h3>
-	  <div style="margin-bottom: 15px; text-align: left;">
-		<label style="display: block; margin-bottom: 8px; cursor: pointer;">
-		  <input type="radio" name="game-mode" value="manual" checked>
-		  <strong>Manual Mode:</strong> Next Question on Click
-		</label>
-		<label style="display: block; cursor: pointer;">
-		  <input type="radio" name="game-mode" value="auto">
-		  <strong>Non-Stop Mode:</strong> Display Score & Auto Advance after 5s
-		</label>
-	  </div>
-	  <button id="create-room-btn">Generate QR</button>
-	</div>
-
+    <div id="room-setup" class="room-section">
+      <button id="create-room-btn">Create Quiz Room</button>
+    </div>
 
     <!-- Active Room Display -->
     <div id="room-view" class="room-section hidden">
@@ -235,7 +222,7 @@
     const scoreList = document.getElementById('score-list');
     const showLeaderboardBtn = document.getElementById('show-leaderboard-btn');
 
-// Helper function to get trophy icon HTML based on rank
+    // Helper function to get trophy icon HTML based on rank
     function getTrophyIcon(rank) {
       if (rank === 1) return `<img src="images/rank-1.png" alt="1st Place" class="trophy-icon">`;
       if (rank === 2) return `<img src="images/rank-2.png" alt="2nd Place" class="trophy-icon">`;
@@ -244,29 +231,24 @@
     }
 
 // Render leaderboard function with clean spacing
-	function renderLeaderboard(leaderboard, isFinal = false) {
-	  scoreList.innerHTML = leaderboard.map((p, index) => {
-		const rank = index + 1;
-		const trophy = getTrophyIcon(rank);
-		return `
-		  <li class="${isFinal ? 'dark-score-item' : ''}" style="display: flex; justify-content: space-between; align-items: center;">
-			<span style="display: inline-flex; align-items: center; gap: 8px;">
-			  ${trophy} Rank ${rank}: ${p.name}
-			</span>
-			<strong style="margin-left: 20px;">${p.score} pts</strong>
-		  </li>
-		`;
-	  }).join('');
-	}
-
-// Create Room 
-	createRoomBtn.addEventListener('click', () => {
-	  currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
-	  const selectedMode = document.querySelector('input[name="game-mode"]:checked')?.value || 'manual';
-	  
-	  socket.emit('create_room', { roomId: currentRoomId, mode: selectedMode });
-	});
-
+function renderLeaderboard(leaderboard, isFinal = false) {
+  scoreList.innerHTML = leaderboard.map((p, index) => {
+    const rank = index + 1;
+    const trophy = getTrophyIcon(rank);
+    return `
+      <li class="${isFinal ? 'dark-score-item' : ''}" style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="display: inline-flex; align-items: center; gap: 8px;">
+          ${trophy} Rank ${rank}: ${p.name}
+        </span>
+        <strong style="margin-left: 20px;">${p.score} pts</strong>
+      </li>
+    `;
+  }).join('');
+}
+    createRoomBtn.addEventListener('click', () => {
+      currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
+      socket.emit('create_room', currentRoomId);
+    });
 
     socket.on('room_created', ({ roomId, qrCode }) => {
       roomSetup.classList.add('hidden');

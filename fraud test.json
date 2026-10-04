@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "question": "Which planet is known as the Red Planet?",
+    "options": [
+      "Earth",
+      "Mars",
+      "Jupiter",
+      "Venus"
+    ],
+    "answer": 1
+  }
+]
