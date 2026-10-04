@@ -105,9 +105,35 @@ io.on('connection', (socket) => {
   questions = readQuestionsFromFile();
   socket.join(roomId);
 
-  const localIP = getLocalIpAddress();
-  const baseUrl = PUBLIC_URL ? PUBLIC_URL : `http://${localIP}:${PORT}`;
-  const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
+ 
+//*******************LOCAL SETTING START ******************
+ // const localIP = getLocalIpAddress();
+  //const baseUrl = PUBLIC_URL ? PUBLIC_URL : `http://${localIP}:${PORT}`;
+//*********************LOCAL SETTING END **************
+
+
+//************GLABAL SETTING START ******************
+
+// Automatically derive the host from Render, Environment Variable, or Local IP
+  const reqHost = socket.handshake.headers.host;
+  let baseUrl;
+
+  if (process.env.PUBLIC_URL) {
+    baseUrl = process.env.PUBLIC_URL;
+  } else if (reqHost && !reqHost.includes('localhost') && !reqHost.includes('127.0.0.1')) {
+    // Protocol defaults to https on Render
+    const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
+    baseUrl = `${protocol}://${reqHost}`;
+  } else {
+    const localIP = getLocalIpAddress();
+    baseUrl = `http://${localIP}:${PORT}`;
+  }
+
+//************GLOBAL SETTING END *******************
+
+
+
+ const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
   const qrImage = await QRCode.toDataURL(joinUrl);
 
   rooms[roomId] = {
@@ -284,7 +310,8 @@ if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
 });
 
 // ... update server.listen ...
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;	// FOR ANY NETWORK connection
+//const PORT = 4000;		// FOR PUBLIC TESTING
 const HOST = '0.0.0.0'; // Bind to all network interfaces
 
 server.listen(PORT, HOST, () => {
