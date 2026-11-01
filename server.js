@@ -188,6 +188,7 @@ io.on('connection', (socket) => {
   
   // 1. Master creates a room
 // 1. Master creates a room
+// 1. Master creates a room
   socket.on('create_room', async (data) => {
     const roomId = typeof data === 'object' ? data.roomId : data;
     const mode = typeof data === 'object' ? data.mode : 'manual';
@@ -195,18 +196,23 @@ io.on('connection', (socket) => {
     questions = readQuestionsFromFile();
     socket.join(roomId);
 
-    const reqHost = socket.handshake.headers.host;
     let baseUrl;
 
+    // 1. If an environment variable is set, use it
     if (process.env.PUBLIC_URL) {
       baseUrl = process.env.PUBLIC_URL;
-    } else if (reqHost && !reqHost.includes('localhost') && !reqHost.includes('127.0.0.1')) {
-      // Automatically captures your live Render domain (e.g., https://your-app.onrender.com)
-      const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
-      baseUrl = `${protocol}://${reqHost}`;
     } else {
-      const localIP = getLocalIpAddress();
-      baseUrl = `http://${localIP}:${PORT}`;
+      // 2. Safely grab the public hostname from proxy headers (Render / cloud standard)
+      const host = socket.handshake.headers['x-forwarded-host'] || socket.handshake.headers.host;
+      const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
+
+      if (host && !host.includes('localhost') && !host.includes('127.0.0.1') && !host.startsWith('10.')) {
+        baseUrl = `${protocol}://${host}`;
+      } else {
+        // Fallback for local testing only
+        const localIP = getLocalIpAddress();
+        baseUrl = `http://${localIP}:${PORT}`;
+      }
     }
 
     const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
@@ -221,7 +227,8 @@ io.on('connection', (socket) => {
 
     socket.emit('room_created', { roomId, qrCode: qrImage });
   });
-
+  
+  
   
   // 2. Participant joins a room
   socket.on('join_room', ({ roomId, name }) => {
