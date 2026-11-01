@@ -195,12 +195,16 @@ io.on('connection', (socket) => {
     questions = readQuestionsFromFile();
     socket.join(roomId);
 
+    const reqHost = socket.handshake.headers.host;
     let baseUrl;
 
     if (process.env.PUBLIC_URL) {
       baseUrl = process.env.PUBLIC_URL;
+    } else if (reqHost && !reqHost.includes('localhost') && !reqHost.includes('127.0.0.1')) {
+      // Automatically captures your live Render domain (e.g., https://your-app.onrender.com)
+      const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
+      baseUrl = `${protocol}://${reqHost}`;
     } else {
-      // Always bind the QR code to your local network IP and PORT so mobile scanning works reliably
       const localIP = getLocalIpAddress();
       baseUrl = `http://${localIP}:${PORT}`;
     }
@@ -217,6 +221,7 @@ io.on('connection', (socket) => {
 
     socket.emit('room_created', { roomId, qrCode: qrImage });
   });
+
   
   // 2. Participant joins a room
   socket.on('join_room', ({ roomId, name }) => {
