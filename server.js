@@ -1,4 +1,5 @@
 const express = require('express');
+const session = require('express-session');
 const http = require('http');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
@@ -6,8 +7,16 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os'); // <--- Import OS module
 
-
 const app = express();
+
+// Session Middleware Configuration for Admin Authentication
+app.use(session({
+  secret: 'your_quiz_secret_key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false }
+}));
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
@@ -19,9 +28,9 @@ const PUBLIC_URL = process.env.PUBLIC_URL || '';
 
 //*****************PUBLIC URL SETTING END*********
 
-
 // Middleware & Static Files
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
 const questionsFilePath = path.join(__dirname, 'quiz-questions.json');
@@ -66,7 +75,90 @@ function getLocalIpAddress() {
   return 'localhost';
 }
 
+// ==========================================
+// VIEW ROUTES & ADMIN AUTHENTICATION
+// ==========================================
+
+// 1. Serve Login Page (index.html) from views folder
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'index.html'));
+});
+
+// 2. Handle Login Submission
+app.post('/login', (req, res) => {
+  const { password } = req.body;
+  
+  // Set your admin password here
+  if (password === 'admin123') {
+    req.session.isAdmin = true;
+    res.redirect('/master.html');
+  } else {
+    res.send("<script>alert('Invalid Password!'); window.location.href='/';</script>");
+  }
+});
+
+// 3. Protected Route for Master Dashboard
+app.get('/master.html', (req, res) => {
+  if (req.session && req.session.isAdmin) {
+    res.sendFile(path.join(__dirname, 'views', 'master.html'));
+  } else {
+    res.redirect('/');
+  }
+});
+
+// 4. Protected Route for Question Manager (admin.html)
+app.get('/admin.html', (req, res) => {
+  if (req.session && req.session.isAdmin) {
+    res.sendFile(path.join(__dirname, 'views', 'admin.html'));
+  } else {
+    res.redirect('/');
+  }
+});
+
+// 5. Participant Route
+// 5. Secure Participant Route (Only allow if room parameter is present and active)
+app.get('/participant.html', (req, res) => {
+  const roomId = req.query.room;
+  
+  // If no room code is provided in the URL, reject access
+  if (!roomId || !rooms[roomId]) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <title>Access Denied</title>
+        <style>
+          body { font-family: Arial, sans-serif; background: #f8d7da; color: #721c24; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+          .error-card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 400px; }
+          h2 { color: #dc3545; }
+          p { color: #555; }
+        </style>
+      </head>
+      <body>
+        <div class="error-card">
+          <h2>🚫 Access Denied</h2>
+          <p>You cannot access this page directly. Please scan the QR code provided by the quiz master to join a valid session.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  // If room is valid, send the participant page
+  res.sendFile(path.join(__dirname, 'views', 'participant.html'));
+});
+
+// 6. Logout Route
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/');
+  });
+});
+
+// ==========================================
 // REST API ENDPOINTS FOR ADMIN DASHBOARD
+// ==========================================
 app.get('/api/questions', (req, res) => {
   try {
     const questionsData = readQuestionsFromFile();
@@ -89,148 +181,115 @@ app.post('/api/questions', (req, res) => {
 // Load questions into memory at startup
 questions = readQuestionsFromFile();
 
-
-
-
+// ==========================================
 // SOCKET.IO REAL-TIME GAME LOGIC
+// ==========================================
 io.on('connection', (socket) => {
   
   // 1. Master creates a room
-	// server.js
-	socket.on('create_room', async (data) => {
-  // Support both object payload { roomId, mode } and legacy string roomId
-  const roomId = typeof data === 'object' ? data.roomId : data;
-  const mode = typeof data === 'object' ? data.mode : 'manual';
+// 1. Master creates a room
+  socket.on('create_room', async (data) => {
+    const roomId = typeof data === 'object' ? data.roomId : data;
+    const mode = typeof data === 'object' ? data.mode : 'manual';
 
-  questions = readQuestionsFromFile();
-  socket.join(roomId);
+    questions = readQuestionsFromFile();
+    socket.join(roomId);
 
- 
-//*******************LOCAL SETTING START ******************
- // const localIP = getLocalIpAddress();
-  //const baseUrl = PUBLIC_URL ? PUBLIC_URL : `http://${localIP}:${PORT}`;
-//*********************LOCAL SETTING END **************
+    let baseUrl;
 
+    if (process.env.PUBLIC_URL) {
+      baseUrl = process.env.PUBLIC_URL;
+    } else {
+      // Always bind the QR code to your local network IP and PORT so mobile scanning works reliably
+      const localIP = getLocalIpAddress();
+      baseUrl = `http://${localIP}:${PORT}`;
+    }
 
-//************GLABAL SETTING START ******************
+    const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
+    const qrImage = await QRCode.toDataURL(joinUrl);
 
-// Automatically derive the host from Render, Environment Variable, or Local IP
-  const reqHost = socket.handshake.headers.host;
-  let baseUrl;
+    rooms[roomId] = {
+      currentQuestion: 0,
+      players: {},
+      answers: {},
+      mode: mode
+    };
 
-  if (process.env.PUBLIC_URL) {
-    baseUrl = process.env.PUBLIC_URL;
-  } else if (reqHost && !reqHost.includes('localhost') && !reqHost.includes('127.0.0.1')) {
-    // Protocol defaults to https on Render
-    const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
-    baseUrl = `${protocol}://${reqHost}`;
-  } else {
-    const localIP = getLocalIpAddress();
-    baseUrl = `http://${localIP}:${PORT}`;
-  }
-
-//************GLOBAL SETTING END *******************
-
-
-
- const joinUrl = `${baseUrl}/participant.html?room=${roomId}`;
-  const qrImage = await QRCode.toDataURL(joinUrl);
-
-  rooms[roomId] = {
-    currentQuestion: 0,
-    players: {},
-    answers: {},
-    mode: mode // Save room mode ('auto' or 'manual')
-  };
-
-  socket.emit('room_created', { roomId, qrCode: qrImage });
-});
-
-
-
+    socket.emit('room_created', { roomId, qrCode: qrImage });
+  });
+  
   // 2. Participant joins a room
-// Inside socket.on('join_room') in server.js
-socket.on('join_room', ({ roomId, name }) => {
-  const room = rooms[roomId];
-  if (!room) return socket.emit('error_msg', 'Room not found!');
+  socket.on('join_room', ({ roomId, name }) => {
+    const room = rooms[roomId];
+    if (!room) return socket.emit('error_msg', 'Room not found!');
 
-  socket.join(roomId);
-  room.players[socket.id] = { id: socket.id, name, score: 0 };
+    socket.join(roomId);
+    room.players[socket.id] = { id: socket.id, name, score: 0 };
 
-  // Send the room's mode back to the joining participant
-  socket.emit('joined_successfully', { roomId, name, mode: room.mode });
-
-  // Update master and everyone with current player list
-  io.to(roomId).emit('player_list_update', Object.values(room.players));
-});
-
-// server.js helper function
-function loadQuestion(roomId) {
-  const room = rooms[roomId];
-  if (!room) return;
-
-  if (questionTimer) clearInterval(questionTimer);
-
-  // Check if all questions are finished
-  if (room.currentQuestion >= questions.length) {
-    const finalLeaderboard = getSortedLeaderboard(room);
-    io.to(roomId).emit('quiz_ended', finalLeaderboard);
-    return;
-  }
-
-  const q = questions[room.currentQuestion];
-  room.answers = {};
-  room.questionStartTime = Date.now();
-
-  io.to(roomId).emit('display_question', {
-    questionNumber: room.currentQuestion + 1,
-    question: q.question,
-    options: q.options
+    socket.emit('joined_successfully', { roomId, name, mode: room.mode });
+    io.to(roomId).emit('player_list_update', Object.values(room.players));
   });
 
-  room.currentQuestion += 1;
+  function loadQuestion(roomId) {
+    const room = rooms[roomId];
+    if (!room) return;
 
-  let timeLeft = 15;
-  io.to(roomId).emit('timer_tick', timeLeft);
+    if (questionTimer) clearInterval(questionTimer);
 
-  questionTimer = setInterval(() => {
-    timeLeft -= 1;
+    if (room.currentQuestion >= questions.length) {
+      const finalLeaderboard = getSortedLeaderboard(room);
+      io.to(roomId).emit('quiz_ended', finalLeaderboard);
+      return;
+    }
+
+    const q = questions[room.currentQuestion];
+    room.answers = {};
+    room.questionStartTime = Date.now();
+
+    io.to(roomId).emit('display_question', {
+      questionNumber: room.currentQuestion + 1,
+      question: q.question,
+      options: q.options
+    });
+
+    room.currentQuestion += 1;
+
+    let timeLeft = 15;
     io.to(roomId).emit('timer_tick', timeLeft);
 
-    if (timeLeft <= 0) {
-      clearInterval(questionTimer);
-      const leaderboard = getSortedLeaderboard(room);
-      io.to(roomId).emit('time_up');
-      io.to(roomId).emit('leaderboard_data', leaderboard);
+    questionTimer = setInterval(() => {
+      timeLeft -= 1;
+      io.to(roomId).emit('timer_tick', timeLeft);
 
-      // NON-STOP MODE: Wait 5 seconds on leaderboard, then load next question
-      if (room.mode === 'auto') {
-        setTimeout(() => {
-          loadQuestion(roomId);
-        }, 5000);
+      if (timeLeft <= 0) {
+        clearInterval(questionTimer);
+        const leaderboard = getSortedLeaderboard(room);
+        io.to(roomId).emit('time_up');
+        io.to(roomId).emit('leaderboard_data', leaderboard);
+
+        if (room.mode === 'auto') {
+          setTimeout(() => {
+            loadQuestion(roomId);
+          }, 5000);
+        }
       }
-    }
-  }, 1000);
-}
+    }, 1000);
+  }
 
+  // 3. Master clicks 'Next Question'
+  socket.on('next_question', (roomId) => {
+    const room = rooms[roomId];
+    if (!room) return;
+    socket.join(roomId);
 
-// 3. Master clicks 'Next Question'
-// server.js
-socket.on('next_question', (roomId) => {
-  const room = rooms[roomId];
-  if (!room) return;
-  socket.join(roomId);
+    loadQuestion(roomId);
+  });
 
-  loadQuestion(roomId);
-});
-
-
-// 4. Participant submits an answer
+  // 4. Participant submits an answer
   socket.on('submit_answer', ({ roomId, selectedOption }) => {
     const room = rooms[roomId];
     if (!room || room.answers[socket.id] !== undefined) return;
 
-    // Fallback safeguard: if questionStartTime is missing, default to current time
     const startTime = room.questionStartTime || Date.now();
     const timeTaken = parseFloat(((Date.now() - startTime) / 1000).toFixed(2));
 
@@ -243,18 +302,17 @@ socket.on('next_question', (roomId) => {
     if (currentQ && selectedOption === currentQ.answer) {
       isCorrect = true;
 
-      // Tiered Scoring Based on Response Time
       if (timeTaken <= 5) {
-        scoreGained = 15; // Answered in 0 - 5 seconds
+        scoreGained = 15;
       } else if (timeTaken <= 10) {
-        scoreGained = 10; // Answered in 5.01 - 10 seconds
+        scoreGained = 10;
       } else {
-        scoreGained = 5;  // Answered in 10.01 - 15 seconds
+        scoreGained = 5;
       }
 
       room.players[socket.id].score += scoreGained;
     } else {
-      scoreGained = -5; // Penalty for incorrect answer
+      scoreGained = -5;
       isCorrect = false;
       room.players[socket.id].score += scoreGained;
     }
@@ -265,31 +323,25 @@ socket.on('next_question', (roomId) => {
       ((room.players[socket.id].totalTime || 0) + timeTaken).toFixed(2)
     );
 
-    // Pass results back to participant
     socket.emit('answer_confirmed', { timeTaken, scoreGained, isCorrect });
 
-    // Check if all players in the room have answered
-// Check if all players in the room have answered
-const totalPlayers = Object.keys(room.players).length;
-const answeredPlayers = Object.keys(room.answers).length;
+    const totalPlayers = Object.keys(room.players).length;
+    const answeredPlayers = Object.keys(room.answers).length;
 
-if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
-  if (questionTimer) clearInterval(questionTimer);
+    if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
+      if (questionTimer) clearInterval(questionTimer);
 
-  const leaderboard = getSortedLeaderboard(room);
-  io.to(roomId).emit('time_up');
-  io.to(roomId).emit('leaderboard_data', leaderboard);
+      const leaderboard = getSortedLeaderboard(room);
+      io.to(roomId).emit('time_up');
+      io.to(roomId).emit('leaderboard_data', leaderboard);
 
-  // NON-STOP MODE: Wait 5 seconds on leaderboard when everyone answers early
-  if (room.mode === 'auto') {
-    setTimeout(() => {
-      loadQuestion(roomId);
-    }, 5000);
-  }
-}
-
+      if (room.mode === 'auto') {
+        setTimeout(() => {
+          loadQuestion(roomId);
+        }, 5000);
+      }
+    }
   });
-
 
   // 5. Master manually clicks 'Display Score' / Leaderboard
   socket.on('show_leaderboard', (roomId) => {
@@ -300,19 +352,15 @@ if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
 
     const leaderboard = getSortedLeaderboard(room);
 
-    // Broadcast to room (participants) AND send directly to Master socket
     io.to(roomId).emit('leaderboard_data', leaderboard);
     socket.emit('leaderboard_data', leaderboard);
 
-    // Move to next question index
     room.currentQuestion += 1;
   });
 });
 
-// ... update server.listen ...
-const PORT = process.env.PORT || 4000;	// FOR ANY NETWORK connection
-//const PORT = 4000;		// FOR PUBLIC TESTING
-const HOST = '0.0.0.0'; // Bind to all network interfaces
+const PORT = process.env.PORT || 4000;
+const HOST = '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
   const localIP = getLocalIpAddress();
@@ -320,4 +368,5 @@ server.listen(PORT, HOST, () => {
   console.log(`Server running locally at: http://localhost:${PORT}`);
   console.log(`Network Join Link: http://${localIP}:${PORT}/participant.html`);
   console.log(`Master View: http://localhost:${PORT}/master.html`);
-  console.log('----------------------------------------------------');});
+  console.log('----------------------------------------------------');
+});
