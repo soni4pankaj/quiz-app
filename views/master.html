@@ -96,13 +96,13 @@
       color: #ffd700; /* Gold color title */
     }
 
-/* Standard Score Item Spacing */
-	#score-list li {
-	  display: flex;
-	  justify-content: space-between;
-	  align-items: center;
-	  padding: 10px 15px;
-	}
+    /* Standard Score Item Spacing */
+    #score-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+    }
 
     /* Trophy Image Style */
     .trophy-icon {
@@ -113,18 +113,27 @@
       margin-right: 10px;
     }
 
-    /* Winner List Item Dark Theme */
+	/* Winner List Item Dark Theme (High Contrast & Clear Readability) */
     .dark-score-item {
-      background: #1a1a1a !important;
-      color: #ffffff !important;
-      border: 1px solid #333 !important;
+      background: #111111 !important; /* Deep dark background */
+      color: #ffffff !important;        /* Crisp white text */
+      border: 1px solid #555555 !important;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 15px !important;
-      margin-bottom: 8px;
-      font-size: 17px;
+      padding: 14px 18px !important;
+      margin-bottom: 10px;
+      font-size: 20px !important;
+      font-weight: bold !important;
+      border-radius: 6px;
     }
+
+    /* Force all text inside the dark item to be bright white */
+    .dark-score-item span, 
+    .dark-score-item strong {
+      color: #ffffff !important;
+    }
+	
 
     /* Background Fireworks Container */
     .fireworks-bg {
@@ -152,13 +161,10 @@
     <h1>Quiz Dashboard</h1>
 
     <!-- Room Creation Section -->
-	<!-- master.html -->
-	<div id="room-setup" class="room-section" style="text-align: center;">
-	  <h3>Initializing Quiz Room...</h3>
-	  <p>Setting up your selected mode...</p>
-	</div>
-
-
+    <div id="room-setup" class="room-section" style="text-align: center;">
+      <h3>Initializing Quiz Room...</h3>
+      <p>Setting up your selected mode...</p>
+    </div>
 
     <!-- Active Room Display -->
     <div id="room-view" class="room-section hidden">
@@ -183,7 +189,6 @@
 
       <button id="next-question-btn">Start / Next Question</button>
     </div>
-	
 
     <!-- Live Game Controls & Display Section -->
     <div id="game-section" class="game-section hidden">
@@ -233,7 +238,7 @@
     const scoreList = document.getElementById('score-list');
     const showLeaderboardBtn = document.getElementById('show-leaderboard-btn');
 
-// Helper function to get trophy icon HTML based on rank
+    // Helper function to get trophy icon HTML based on rank
     function getTrophyIcon(rank) {
       if (rank === 1) return `<img src="images/rank-1.png" alt="1st Place" class="trophy-icon">`;
       if (rank === 2) return `<img src="images/rank-2.png" alt="2nd Place" class="trophy-icon">`;
@@ -241,69 +246,66 @@
       return '';
     }
 
-// Render leaderboard function with clean spacing
-	function renderLeaderboard(leaderboard, isFinal = false) {
-	  scoreList.innerHTML = leaderboard.map((p, index) => {
-		const rank = index + 1;
-		const trophy = getTrophyIcon(rank);
-		return `
-		  <li class="${isFinal ? 'dark-score-item' : ''}" style="display: flex; justify-content: space-between; align-items: center;">
-			<span style="display: inline-flex; align-items: center; gap: 8px;">
-			  ${trophy} Rank ${rank}: ${p.name}
-			</span>
-			<strong style="margin-left: 20px;">${p.score} pts</strong>
-		  </li>
-		`;
-	  }).join('');
-	}
+    // Render leaderboard function with clean spacing
+    function renderLeaderboard(leaderboard, isFinal = false) {
+      scoreList.innerHTML = leaderboard.map((p, index) => {
+        const rank = index + 1;
+        const trophy = getTrophyIcon(rank);
+        return `
+          <li class="${isFinal ? 'dark-score-item' : ''}" style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="display: inline-flex; align-items: center; gap: 8px;">
+              ${trophy} Rank ${rank}: ${p.name}
+            </span>
+            <strong style="margin-left: 20px;">${p.score} pts</strong>
+          </li>
+        `;
+      }).join('');
+    }
 
-	// Create Room 
-	// Remove the old createRoomBtn click listener and replace with auto-creation on load:
-	window.addEventListener('DOMContentLoaded', async () => {
-	  try {
-		const res = await fetch('/api/session-mode');
-		const data = await res.json();
-		
-		if (data.success) {
-		  currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
-		  
-		  // Automatically emit room creation using the mode chosen on the login page
-		  socket.emit('create_room', { 
-			roomId: currentRoomId, 
-			mode: data.quizMode, 
-			groupCount: data.groupCount 
-		  });
-		} else {
-		  window.location.href = '/';
-		}
-	  } catch (err) {
-		console.error('Failed to load session mode', err);
-	  }
-	});
+    // Auto-create room on page load based on login session settings
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const res = await fetch('/api/session-mode');
+        const data = await res.json();
+        
+        if (data.success) {
+          currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
+          
+          socket.emit('create_room', { 
+            roomId: currentRoomId, 
+            mode: data.quizMode, 
+            groupCount: data.groupCount 
+          });
+        } else {
+          window.location.href = '/';
+        }
+      } catch (err) {
+        console.error('Failed to load session mode', err);
+      }
+    });
 
-	// Listen for room creation success from server and display QR code
-	socket.on('room_created', ({ roomId, qrCode, joinUrl }) => {
+    // Display QR Code & Join Link upon room creation
+    socket.on('room_created', ({ roomId, qrCode, joinUrl }) => {
       roomSetup.classList.add('hidden');
       roomView.classList.remove('hidden');
       displayRoomId.textContent = roomId;
       qrcodeContainer.innerHTML = `<img src="${qrCode}" alt="Join QR Code" style="max-width:200px;">`;
       
-      // Populate the join URL box
       const linkBox = document.getElementById('join-link-box');
       if (linkBox && joinUrl) {
         linkBox.textContent = joinUrl;
       }
     });
 
-    // Copy button action
+    // Copy Join URL Button Action
     document.getElementById('copy-link-btn').addEventListener('click', () => {
       const linkText = document.getElementById('join-link-box').textContent;
       navigator.clipboard.writeText(linkText).then(() => {
-        alert('Join URL copied to clipboard! Open a new browser tab and paste it.');
+        alert('Join URL copied to clipboard!');
       });
     });
-	
 
+    // Update player lobby list in real time
     socket.on('player_list_update', (players) => {
       playerCount.textContent = players.length;
       if (players.length === 0) {
@@ -315,6 +317,7 @@
       `).join('');
     });
 
+    // Master click handlers for advancing questions
     nextQuestionBtn.addEventListener('click', () => {
       roomView.classList.add('hidden');
       gameSection.classList.remove('hidden');
@@ -327,6 +330,7 @@
       socket.emit('next_question', currentRoomId);
     });
 
+    // Question display socket handler
     socket.on('display_question', (data) => {
       scoreboardBox.classList.add('hidden');
       questionBox.classList.remove('hidden');
@@ -334,39 +338,33 @@
       optionsList.innerHTML = data.options.map((opt, index) => `<li>${index + 1}. ${opt}</li>`).join('');
     });
 
+    // Timer sync handler
     socket.on('timer_tick', (timeLeft) => {
       timerDisplay.textContent = timeLeft;
     });
 
+    // Manual Show Leaderboard button trigger
     showLeaderboardBtn.addEventListener('click', () => {
       socket.emit('show_leaderboard', currentRoomId);
     });
 
-	socket.on('leaderboard_data', (leaderboard) => {
-	  const leaderboardList = document.getElementById('leaderboard-list'); // or your leaderboard container ID
-	  if (!leaderboardList) return;
+    // Receive and render live leaderboard updates on admin screen
+    socket.on('leaderboard_data', (leaderboard) => {
+      questionBox.classList.add('hidden');
+      scoreboardBox.classList.remove('hidden');
+      renderLeaderboard(leaderboard, false);
+    });
 
-	  leaderboardList.innerHTML = leaderboard.map((item, index) => `
-		<div style="background: #f8f9fa; margin: 8px 0; padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; font-weight: bold;">
-		  <span>Rank ${index + 1}: ${item.name}</span>
-		  <span>${item.score} pts</span>
-		</div>
-	  `).join('');
-	});
-
-
-    // Quiz Ended Handler
+    // Quiz Ended Handler (Triggers Dark Theme + Fireworks + Final Standings)
     socket.on('quiz_ended', (finalLeaderboard) => {
       questionBox.classList.add('hidden');
       scoreboardBox.classList.remove('hidden');
    
-	// Hide the "Quiz Dashboard" main heading
-	  const mainTitle = document.querySelector('#main-container h1');
-	  if (mainTitle) {
-		mainTitle.style.display = 'none';
-	  }
+      const mainTitle = document.querySelector('#main-container h1');
+      if (mainTitle) {
+        mainTitle.style.display = 'none';
+      }
    
-      // Activate Fireworks and Dark Modes
       const fireworksBg = document.getElementById('fireworks-container');
       if (fireworksBg) {
         fireworksBg.classList.add('active');
@@ -377,9 +375,7 @@
       
       document.querySelector('#scoreboard-box h2').textContent = "🏆 Quiz Finished! Final Leaderboard 🏆";
 
-      // Render dark list items with rank 1-3 PNG images
       renderLeaderboard(finalLeaderboard, true);
-      
       nextFromScoreBtn.style.display = 'none';
     });
   </script>

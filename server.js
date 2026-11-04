@@ -49,12 +49,11 @@ function saveQuestionsToFile(questionsData) {
 }
 
 // Helper: Sort room leaderboard (Supports both Individual & Group Modes)
-	function getSortedLeaderboard(room) {
+function getSortedLeaderboard(room) {
   if (!room) return [];
   
   if (room.mode === 'group') {
     return room.scores.map((score, idx) => {
-      // Check if a custom name was registered for this group, otherwise fallback to "Group X"
       const customName = room.groupNames && room.groupNames[idx] ? room.groupNames[idx] : `Group ${idx + 1}`;
       return {
         id: `group_${idx}`,
@@ -140,7 +139,7 @@ app.get('/participant.html', (req, res) => {
       <head><meta charset="UTF-8"><title>Access Denied</title></head>
       <body style="font-family: Arial; display: flex; justify-content: center; align-items: center; height: 100vh;">
         <div style="background: #f8d7da; padding: 30px; border-radius: 8px; text-align: center;">
-          <h2 style="color: #dc3545;">?? Access Denied</h2>
+          <h2 style="color: #dc3545;">⚠️ Access Denied</h2>
           <p>Please scan the valid QR code or use the join link provided by the quiz master.</p>
         </div>
       </body>
@@ -233,6 +232,7 @@ io.on('connection', (socket) => {
         currentQuestion: 0,
         players: {},
         answers: {},
+        questions: questions,
         mode: mode // 'manual' or 'auto'
       };
     }
@@ -251,7 +251,6 @@ io.on('connection', (socket) => {
     socket.emit('joined_successfully', { roomId, name, mode: room.mode });
     io.to(roomId).emit('player_list_update', Object.values(room.players));
   });
-  
 
   // Helper: Load Question for Individual Modes
   function loadQuestion(roomId) {
@@ -260,13 +259,15 @@ io.on('connection', (socket) => {
 
     if (questionTimer) clearInterval(questionTimer);
 
-    if (room.currentQuestion >= questions.length) {
+    const totalQuestions = room.questions ? room.questions.length : 0;
+    if (room.currentQuestion >= totalQuestions) {
       const finalLeaderboard = getSortedLeaderboard(room);
       io.to(roomId).emit('quiz_ended', finalLeaderboard);
+      io.to(roomId).emit('leaderboard_data', finalLeaderboard);
       return;
     }
 
-    const q = questions[room.currentQuestion];
+    const q = room.questions[room.currentQuestion];
     room.answers = {};
     room.questionStartTime = Date.now();
 
@@ -298,13 +299,12 @@ io.on('connection', (socket) => {
     }, 1000);
   }
 
-	// 4. Master clicks 'Next Question' (Handles both Individual and Group modes)
-	socket.on('next_question', (roomId) => {
+  // 4. Master clicks 'Next Question' (Handles both Individual and Group modes)
+  socket.on('next_question', (roomId) => {
     const room = rooms[roomId];
     if (!room) return;
 
     if (room.mode === 'group') {
-      // If it's the first time or advancing turns in group mode
       if (room.currentQuestion === undefined) room.currentQuestion = 0;
       if (room.activeGroup === undefined) room.activeGroup = 0;
       
@@ -324,7 +324,35 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. Submit Group Answer (Instant score update and auto-advances to next group turn)
+  // Helper: Safe Group Turn Progression (Prevents out-of-bounds/freezing issues)
+  function advanceGroupQuiz(roomId, ioServer) {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    if (room.timer) clearInterval(room.timer);
+
+    room.currentQuestion += 1;
+    const totalQuestions = room.questions ? room.questions.length : 0;
+
+    if (room.currentQuestion >= totalQuestions) {
+      const finalLeaderboard = getSortedLeaderboard(room);
+      ioServer.to(roomId).emit('group_quiz_ended', { 
+        scores: room.scores, 
+        groupNames: room.groupNames || {} 
+      });
+      ioServer.to(roomId).emit('quiz_ended', finalLeaderboard);
+      ioServer.to(roomId).emit('leaderboard_data', finalLeaderboard);
+    } else {
+      room.activeGroup = room.currentQuestion % room.groupCount;
+      
+      // Automatically broadcast live leaderboard update to admin screen on each turn change
+      ioServer.to(roomId).emit('leaderboard_data', getSortedLeaderboard(room));
+      
+      startGroupTurnTimer(roomId, ioServer);
+    }
+  }
+
+  // 6. Submit Group Answer
   socket.on('submit_group_answer', ({ roomId, groupIndex, selectedOption }) => {
     const room = rooms[roomId];
     if (!room || room.mode !== 'group' || groupIndex !== room.activeGroup) return;
@@ -332,25 +360,11 @@ io.on('connection', (socket) => {
     if (room.timer) clearInterval(room.timer);
 
     const currentQ = room.questions[room.currentQuestion];
-    
     if (currentQ && selectedOption === currentQ.answer) {
       room.scores[groupIndex] += 10; 
     }
 
-	room.currentQuestion += 1;
-
-    if (room.currentQuestion >= room.questions.length) {
-      // ---> UPDATE HERE: Include groupNames in the emission
-      io.to(roomId).emit('group_quiz_ended', { 
-        scores: room.scores, 
-        groupNames: room.groupNames || {} 
-      });
-      io.to(roomId).emit('quiz_ended', getSortedLeaderboard(room));
-    } else {
-      room.activeGroup = room.currentQuestion % room.groupCount;
-      startGroupTurnTimer(roomId, io);
-    }
-	
+    advanceGroupQuiz(roomId, io);
   });
 
   // Helper: Automated Rapid Fire Turn Timer for Groups
@@ -359,6 +373,12 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     if (room.timer) clearInterval(room.timer);
+
+    const totalQuestions = room.questions ? room.questions.length : 0;
+    if (room.currentQuestion >= totalQuestions) {
+      advanceGroupQuiz(roomId, ioServer);
+      return;
+    }
 
     const currentQ = room.questions[room.currentQuestion];
     
@@ -389,23 +409,9 @@ io.on('connection', (socket) => {
       timeLeft -= 1;
       ioServer.to(roomId).emit('timer_tick', timeLeft);
 
-		if (timeLeft <= 0) {
+      if (timeLeft <= 0) {
         clearInterval(room.timer);
-        
-        // Time's up! Auto-advance to the next group turn
-        room.currentQuestion += 1;
-
-        if (room.currentQuestion >= room.questions.length) {
-          // ---> UPDATE HERE: Include groupNames in the emission here as well
-          ioServer.to(roomId).emit('group_quiz_ended', { 
-            scores: room.scores, 
-            groupNames: room.groupNames || {} 
-          });
-          ioServer.to(roomId).emit('quiz_ended', getSortedLeaderboard(room));
-        } else {
-          room.activeGroup = room.currentQuestion % room.groupCount;
-          startGroupTurnTimer(roomId, ioServer);
-        }
+        advanceGroupQuiz(roomId, ioServer);
       }
     }, 1000);
   }
@@ -474,7 +480,7 @@ io.on('connection', (socket) => {
     room.currentQuestion += 1;
   });
   
- // Get room group info (groupCount and already taken groups)
+  // Get room group info (groupCount and already taken groups)
   socket.on('get_group_room_info', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || room.mode !== 'group') {
@@ -491,7 +497,6 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (!room) return;
 
-    // Check if the group is already taken
     if (!room.groupNames) room.groupNames = {};
     if (room.groupNames[groupIndex]) {
       return socket.emit('error_msg', 'This group has already been selected by another team!');
@@ -516,10 +521,8 @@ io.on('connection', (socket) => {
 
     socket.emit('group_joined_success', { name, groupIndex });
     
-    // Broadcast updated player list to master
     io.to(roomId).emit('player_list_update', Object.values(room.players));
 
-    // Broadcast updated taken groups to all waiting participant screens so dropdowns update live
     io.to(roomId).emit('update_available_groups', {
       groupCount: room.groupCount,
       groupNames: room.groupNames
