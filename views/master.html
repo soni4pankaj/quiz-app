@@ -153,28 +153,26 @@
 
     <!-- Room Creation Section -->
 	<!-- master.html -->
-	<div id="room-setup" class="room-section">
-	  <h3>Select Play Mode:</h3>
-	  <div style="margin-bottom: 15px; text-align: left;">
-		<label style="display: block; margin-bottom: 8px; cursor: pointer;">
-		  <input type="radio" name="game-mode" value="manual" checked>
-		  <strong>Manual Mode:</strong> Next Question on Click
-		</label>
-		<label style="display: block; cursor: pointer;">
-		  <input type="radio" name="game-mode" value="auto">
-		  <strong>Non-Stop Mode:</strong> Display Score & Auto Advance after 5s
-		</label>
-	  </div>
-	  <button id="create-room-btn">Generate QR</button>
+	<div id="room-setup" class="room-section" style="text-align: center;">
+	  <h3>Initializing Quiz Room...</h3>
+	  <p>Setting up your selected mode...</p>
 	</div>
+
 
 
     <!-- Active Room Display -->
     <div id="room-view" class="room-section hidden">
       <h2>Room ID: <span id="display-room-id"></span></h2>
-      <p style="text-align: center;">Scan the QR code below to join as a participant:</p>
+      <p style="text-align: center;">Scan the QR code below or open the link to join as a participant:</p>
       <div id="qrcode"></div>
       
+      <!-- Copy-Paste Join Link Box for Local Testing -->
+      <div style="margin: 15px 0;">
+        <label><strong>Participant Join URL:</strong></label>
+        <div id="join-link-box" style="background: #e2e3e5; padding: 10px; border-radius: 4px; word-break: break-all; font-family: monospace; font-size: 13px; margin-top: 5px;">Generating link...</div>
+        <button id="copy-link-btn" style="margin-top: 8px; background-color: #6c757d; padding: 8px;">Copy Join Link</button>
+      </div>
+
       <!-- Connected Players Scroll Container -->
       <h3>Joined Participants (<span id="player-count">0</span>)</h3>
       <div class="player-scroll-box">
@@ -185,6 +183,7 @@
 
       <button id="next-question-btn">Start / Next Question</button>
     </div>
+	
 
     <!-- Live Game Controls & Display Section -->
     <div id="game-section" class="game-section hidden">
@@ -214,7 +213,6 @@
 
     let currentRoomId = null;
 
-    const createRoomBtn = document.getElementById('create-room-btn');
     const roomSetup = document.getElementById('room-setup');
     const roomView = document.getElementById('room-view');
     const displayRoomId = document.getElementById('display-room-id');
@@ -259,21 +257,52 @@
 	  }).join('');
 	}
 
-// Create Room 
-	createRoomBtn.addEventListener('click', () => {
-	  currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
-	  const selectedMode = document.querySelector('input[name="game-mode"]:checked')?.value || 'manual';
-	  
-	  socket.emit('create_room', { roomId: currentRoomId, mode: selectedMode });
+	// Create Room 
+	// Remove the old createRoomBtn click listener and replace with auto-creation on load:
+	window.addEventListener('DOMContentLoaded', async () => {
+	  try {
+		const res = await fetch('/api/session-mode');
+		const data = await res.json();
+		
+		if (data.success) {
+		  currentRoomId = 'room_' + Math.floor(Math.random() * 9000 + 1000);
+		  
+		  // Automatically emit room creation using the mode chosen on the login page
+		  socket.emit('create_room', { 
+			roomId: currentRoomId, 
+			mode: data.quizMode, 
+			groupCount: data.groupCount 
+		  });
+		} else {
+		  window.location.href = '/';
+		}
+	  } catch (err) {
+		console.error('Failed to load session mode', err);
+	  }
 	});
 
-
-    socket.on('room_created', ({ roomId, qrCode }) => {
+	// Listen for room creation success from server and display QR code
+	socket.on('room_created', ({ roomId, qrCode, joinUrl }) => {
       roomSetup.classList.add('hidden');
       roomView.classList.remove('hidden');
       displayRoomId.textContent = roomId;
       qrcodeContainer.innerHTML = `<img src="${qrCode}" alt="Join QR Code" style="max-width:200px;">`;
+      
+      // Populate the join URL box
+      const linkBox = document.getElementById('join-link-box');
+      if (linkBox && joinUrl) {
+        linkBox.textContent = joinUrl;
+      }
     });
+
+    // Copy button action
+    document.getElementById('copy-link-btn').addEventListener('click', () => {
+      const linkText = document.getElementById('join-link-box').textContent;
+      navigator.clipboard.writeText(linkText).then(() => {
+        alert('Join URL copied to clipboard! Open a new browser tab and paste it.');
+      });
+    });
+	
 
     socket.on('player_list_update', (players) => {
       playerCount.textContent = players.length;
@@ -313,22 +342,29 @@
       socket.emit('show_leaderboard', currentRoomId);
     });
 
-    socket.on('leaderboard_data', (leaderboard) => {
-      questionBox.classList.add('hidden');
-      scoreboardBox.classList.remove('hidden');
-      renderLeaderboard(leaderboard, false);
-    });
+	socket.on('leaderboard_data', (leaderboard) => {
+	  const leaderboardList = document.getElementById('leaderboard-list'); // or your leaderboard container ID
+	  if (!leaderboardList) return;
+
+	  leaderboardList.innerHTML = leaderboard.map((item, index) => `
+		<div style="background: #f8f9fa; margin: 8px 0; padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; font-weight: bold;">
+		  <span>Rank ${index + 1}: ${item.name}</span>
+		  <span>${item.score} pts</span>
+		</div>
+	  `).join('');
+	});
+
 
     // Quiz Ended Handler
     socket.on('quiz_ended', (finalLeaderboard) => {
       questionBox.classList.add('hidden');
       scoreboardBox.classList.remove('hidden');
    
-// Hide the "Quiz Dashboard" main heading
-  const mainTitle = document.querySelector('#main-container h1');
-  if (mainTitle) {
-    mainTitle.style.display = 'none';
-  }
+	// Hide the "Quiz Dashboard" main heading
+	  const mainTitle = document.querySelector('#main-container h1');
+	  if (mainTitle) {
+		mainTitle.style.display = 'none';
+	  }
    
       // Activate Fireworks and Dark Modes
       const fireworksBg = document.getElementById('fireworks-container');

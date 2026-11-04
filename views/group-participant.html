@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Group Participant Portal</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f9; padding: 20px; color: #333; margin: 0; }
+    .container { max-width: 450px; margin: auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    h1, h2 { color: #007bff; text-align: center; }
+    input[type="text"], select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
+    button { width: 100%; background-color: #007bff; color: white; border: none; padding: 12px; font-size: 16px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+    button:hover { background-color: #0056b3; }
+    .option-btn { background-color: #28a745; margin-bottom: 8px; width: 100%; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 16px; }
+    .option-btn:hover { background-color: #218838; }
+    .hidden { display: none; }
+    .status-box { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 15px; border-radius: 6px; text-align: center; margin-top: 15px; }
+    .score-badge { background: #007bff; color: white; padding: 5px 10px; border-radius: 4px; font-size: 14px; display: inline-block; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Group Rapid Fire</h1>
+
+    <!-- Registration Screen -->
+    <div id="join-section">
+      <h2>Select Your Group</h2>
+      <input type="text" id="participant-name" placeholder="Enter Your Name / Team Name" required />
+      <select id="group-select">
+        <option value="0">Group 1</option>
+        <option value="1">Group 2</option>
+      </select>
+      <button id="join-group-btn">Join Group</button>
+      <p id="error-msg" style="color: red; text-align: center;"></p>
+    </div>
+
+	<!-- Waiting / Standby Screen -->
+    <div id="waiting-section" class="hidden">
+      <h2>Welcome, <span id="display-name"></span>!</h2>
+      <div style="text-align: center;">
+        <span class="score-badge">Your Group Score: <strong id="my-group-score">0</strong> pts</span>
+      </div>
+      <div class="status-box">
+        <p id="wait-message">Waiting for the quiz master to start or for your group's turn...</p>
+      </div>
+      <!-- Final Leaderboard Box for Group Quiz -->
+      <div id="final-leaderboard-box" class="hidden" style="margin-top: 20px; text-align: left;">
+        <h3 style="color: #28a745; text-align: center;">🏆 Final Standings 🏆</h3>
+        <ul id="final-score-list" style="list-style-type: none; padding: 0;"></ul>
+      </div>
+    </div>
+
+    <!-- Active Question Screen -->
+    <div id="question-section" class="hidden">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <span class="score-badge">Score: <strong id="q-group-score">0</strong> pts</span>
+        <p style="margin: 0; color: #dc3545; font-size: 16px;"><strong>Timer:</strong> <span id="group-timer-display">10</span>s</p>
+      </div>
+      <h3 id="q-title">Question loading...</h3>
+      <div id="options-container"></div>
+    </div>
+
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = urlParams.get('room');
+
+  const joinSection = document.getElementById('join-section');
+  const waitingSection = document.getElementById('waiting-section');
+  const questionSection = document.getElementById('question-section');
+  const waitMessage = document.getElementById('wait-message');
+  const groupSelect = document.getElementById('group-select');
+  const errorMsg = document.getElementById('error-msg');
+
+  let assignedGroup = 0;
+
+  // Request room group configuration as soon as the page loads
+  socket.emit('get_group_room_info', { roomId });
+
+  // Populate dropdown dynamically based on room settings and taken groups
+  socket.on('group_room_info', (data) => {
+    updateGroupDropdown(data.groupCount, data.groupNames);
+  });
+
+  socket.on('update_available_groups', (data) => {
+    updateGroupDropdown(data.groupCount, data.groupNames);
+  });
+
+  function updateGroupDropdown(groupCount, groupNames) {
+    const currentSelection = groupSelect.value;
+    groupSelect.innerHTML = '';
+
+    for (let i = 0; i < groupCount; i++) {
+      const option = document.createElement('option');
+      option.value = i;
+      
+      if (groupNames && groupNames[i]) {
+        option.textContent = `Group ${i + 1} (Taken by ${groupNames[i]})`;
+        option.disabled = true; // Disable selection
+        option.style.color = '#999';
+      } else {
+        option.textContent = `Group ${i + 1} (Available)`;
+      }
+      groupSelect.appendChild(option);
+    }
+
+    // Try to keep selection on an available option if previous one got taken
+    if (groupNames && groupNames[currentSelection]) {
+      const firstAvailable = Array.from(groupSelect.options).find(opt => !opt.disabled);
+      if (firstAvailable) groupSelect.value = firstAvailable.value;
+    } else {
+      groupSelect.value = currentSelection;
+    }
+  }
+
+  document.getElementById('join-group-btn').addEventListener('click', () => {
+    const name = document.getElementById('participant-name').value.trim();
+    assignedGroup = parseInt(groupSelect.value);
+
+    if (!name) {
+      errorMsg.textContent = 'Please enter your name!';
+      return;
+    }
+
+    socket.emit('join_group_participant', { roomId, name, groupIndex: assignedGroup });
+  });
+
+  socket.on('error_msg', (msg) => {
+    errorMsg.textContent = msg;
+  });
+
+  socket.on('group_joined_success', ({ name, groupIndex }) => {
+    joinSection.classList.add('hidden');
+    waitingSection.classList.remove('hidden');
+    document.getElementById('display-name').textContent = `${name} (Group ${groupIndex + 1})`;
+    waitMessage.textContent = 'Successfully joined! Waiting for the quiz master to start...';
+  });
+
+  socket.on('group_game_state_update', (state) => {
+    const currentScore = state.scores[assignedGroup] || 0;
+    document.getElementById('my-group-score').textContent = currentScore;
+    document.getElementById('q-group-score').textContent = currentScore;
+  });
+
+  const timerDisplay = document.getElementById('group-timer-display');
+  socket.on('timer_tick', (timeLeft) => {
+    if (timerDisplay) {
+      timerDisplay.textContent = timeLeft;
+    }
+  });
+
+  socket.on('group_turn_active', (data) => {
+    waitingSection.classList.add('hidden');
+    questionSection.classList.remove('hidden');
+
+    document.getElementById('q-title').textContent = `Q${data.questionNumber}: ${data.question}`;
+    const optContainer = document.getElementById('options-container');
+    optContainer.innerHTML = '';
+
+    data.options.forEach((opt, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'option-btn';
+      btn.textContent = opt;
+      btn.onclick = () => {
+        socket.emit('submit_group_answer', { roomId, groupIndex: assignedGroup, selectedOption: idx });
+        questionSection.classList.add('hidden');
+        waitingSection.classList.remove('hidden');
+        waitMessage.textContent = 'Answer submitted! Waiting for next turn...';
+      };
+      optContainer.appendChild(btn);
+    });
+  });
+
+  socket.on('group_turn_waiting', ({ activeGroup }) => {
+    questionSection.classList.add('hidden');
+    waitingSection.classList.remove('hidden');
+    waitMessage.textContent = `Currently Group ${activeGroup + 1}'s turn. Please standby...`;
+  });
+
+  socket.on('group_quiz_ended', ({ scores, groupNames }) => {
+    questionSection.classList.add('hidden');
+    waitingSection.classList.remove('hidden');
+    
+    const finalScore = scores[assignedGroup] || 0;
+    waitMessage.innerHTML = `🎉 Quiz Finished!<br>Your Group Final Score: <strong>${finalScore} pts</strong>`;
+
+    const sortedGroups = scores.map((score, idx) => ({
+      groupName: (groupNames && groupNames[idx]) ? `${groupNames[idx]} (Group ${idx + 1})` : `Group ${idx + 1}`,
+      score: score
+    })).sort((a, b) => b.score - a.score);
+
+    const finalBox = document.getElementById('final-leaderboard-box');
+    const finalScoreList = document.getElementById('final-score-list');
+    
+    finalScoreList.innerHTML = sortedGroups.map((g, index) => `
+      <li style="background: #e9ecef; margin: 5px 0; padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; font-weight: bold;">
+        <span>Rank ${index + 1}: ${g.groupName}</span>
+        <span>${g.score} pts</span>
+      </li>
+    `).join('');
+
+    finalBox.classList.remove('hidden');
+  });
+</script>
+  
+  </body>
+</html>
