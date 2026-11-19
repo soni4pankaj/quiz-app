@@ -9,9 +9,12 @@ const os = require('os');
 
 const app = express();
 
+const PORT = process.env.PORT || 4000;
+const HOST = '0.0.0.0';
+
 // Session Middleware Configuration for Admin Authentication
 app.use(session({
-  secret: 'your_quiz_secret_key',
+  secret: process.env.SESSION_SECRET || 'your_quiz_secret_key',
   resave: false,
   saveUninitialized: false,
   cookie: { secure: false }
@@ -26,7 +29,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
 const questionsFilePath = path.join(__dirname, 'quiz-questions.json');
-let questionTimer = null;
 let questions = [];
 const rooms = {};
 
@@ -48,19 +50,35 @@ function saveQuestionsToFile(questionsData) {
   fs.writeFileSync(questionsFilePath, JSON.stringify(questionsData, null, 2));
 }
 
+// Helper: Clear all active timers/timeouts on a room safely
+function clearRoomTimers(room) {
+  if (!room) return;
+  if (room.timer) {
+    clearInterval(room.timer);
+    room.timer = null;
+  }
+  if (room.nextTimeout) {
+    clearTimeout(room.nextTimeout);
+    room.nextTimeout = null;
+  }
+}
+
 // Helper: Sort room leaderboard (Supports both Individual & Group Modes)
 function getSortedLeaderboard(room) {
   if (!room) return [];
-  
+
   if (room.mode === 'group') {
-    return room.scores.map((score, idx) => {
+    const count = room.groupCount || (room.scores ? room.scores.length : 0);
+    const list = [];
+    for (let idx = 0; idx < count; idx++) {
       const customName = room.groupNames && room.groupNames[idx] ? room.groupNames[idx] : `Group ${idx + 1}`;
-      return {
+      list.push({
         id: `group_${idx}`,
-        name: customName,
-        score: score
-      };
-    }).sort((a, b) => b.score - a.score);
+        name: `${customName} (Group ${idx + 1})`,
+        score: (room.scores && room.scores[idx]) || 0
+      });
+    }
+    return list.sort((a, b) => b.score - a.score);
   }
 
   if (!room.players) return [];
@@ -90,11 +108,11 @@ app.get('/', (req, res) => {
 
 app.post('/login', (req, res) => {
   const { password, quizMode, groupCount } = req.body;
-  
+
   if (password === 'admin123') {
     req.session.isAdmin = true;
     req.session.quizMode = quizMode || 'manual';
-    req.session.groupCount = parseInt(groupCount) || 2;
+    req.session.groupCount = parseInt(groupCount, 10) || 2;
 
     res.redirect('/master.html');
   } else {
@@ -104,10 +122,10 @@ app.post('/login', (req, res) => {
 
 app.get('/api/session-mode', (req, res) => {
   if (req.session && req.session.isAdmin) {
-    res.json({ 
-      success: true, 
-      quizMode: req.session.quizMode, 
-      groupCount: req.session.groupCount 
+    res.json({
+      success: true,
+      quizMode: req.session.quizMode,
+      groupCount: req.session.groupCount
     });
   } else {
     res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -151,8 +169,8 @@ app.get('/participant.html', (req, res) => {
 
 app.get('/group-participant.html', (req, res) => {
   const roomId = req.query.room;
-  if (!roomId) {
-    return res.send('<h3>Access Denied: Invalid Room</h3>');
+  if (!roomId || !rooms[roomId]) {
+    return res.send('<h3>Access Denied: Invalid or Expired Room</h3>');
   }
   res.sendFile(path.join(__dirname, 'views', 'group-participant.html'));
 });
@@ -177,6 +195,7 @@ app.get('/api/questions', (req, res) => {
 app.post('/api/questions', (req, res) => {
   try {
     saveQuestionsToFile(req.body);
+    questions = readQuestionsFromFile();
     res.json({ success: true, message: 'Questions updated successfully!' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to save questions' });
@@ -189,55 +208,74 @@ questions = readQuestionsFromFile();
 // SOCKET.IO REAL-TIME GAME LOGIC
 // ==========================================
 io.on('connection', (socket) => {
-  
-  // 1. Master creates a room (Unified for Manual, Auto, and Group modes)
+
+  // 1. Master creates a room (Unified for Manual, Auto Rapid Fire, and Group modes)
   socket.on('create_room', async (data) => {
-    const roomId = typeof data === 'object' ? data.roomId : data;
-    const mode = typeof data === 'object' ? (data.mode || 'manual') : 'manual';
-    const groupCount = typeof data === 'object' ? (parseInt(data.groupCount) || 2) : 2;
+    try {
+      const roomId = typeof data === 'object' ? data.roomId : data;
+      const mode = typeof data === 'object' ? (data.mode || 'manual') : 'manual';
+      const groupCount = typeof data === 'object' ? (parseInt(data.groupCount, 10) || 2) : 2;
 
-    questions = readQuestionsFromFile();
-    socket.join(roomId);
+      if (!roomId) return;
 
-    let baseUrl;
-    const host = socket.handshake.headers['x-forwarded-host'] || socket.handshake.headers.host;
-    const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
-
-    if (host && !host.includes('localhost') && !host.includes('127.0.0.1') && !host.startsWith('10.')) {
-      baseUrl = `${protocol}://${host}`;
-    } else {
-      baseUrl = `http://${getLocalIpAddress()}:${PORT}`;
-    }
-
-    const participantPage = (mode === 'group') ? 'group-participant.html' : 'participant.html';
-    const joinUrl = `${baseUrl}/${participantPage}?room=${roomId}`;
-    const qrImage = await QRCode.toDataURL(joinUrl);
-
-    if (mode === 'group') {
-      rooms[roomId] = {
-        mode: 'group',
-        currentQuestion: 0,
-        activeGroup: 0,
-        groupCount: groupCount,
-        scores: Array(groupCount).fill(0),
-        groupSockets: {},
-        players: {},
-        questions: questions
-      };
-      for (let i = 0; i < groupCount; i++) {
-        rooms[roomId].groupSockets[i] = [];
+      if (rooms[roomId]) {
+        clearRoomTimers(rooms[roomId]);
       }
-    } else {
-      rooms[roomId] = {
-        currentQuestion: 0,
-        players: {},
-        answers: {},
-        questions: questions,
-        mode: mode // 'manual' or 'auto'
-      };
-    }
 
-    socket.emit('room_created', { roomId, qrCode: qrImage, mode, joinUrl });
+      questions = readQuestionsFromFile();
+      socket.join(roomId);
+
+      let baseUrl;
+      const host = socket.handshake.headers['x-forwarded-host'] || socket.handshake.headers.host;
+      const protocol = socket.handshake.headers['x-forwarded-proto'] || 'https';
+
+      if (host && !host.includes('localhost') && !host.includes('127.0.0.1') && !host.startsWith('10.')) {
+        baseUrl = `${protocol}://${host}`;
+      } else {
+        baseUrl = `http://${getLocalIpAddress()}:${PORT}`;
+      }
+
+      const participantPage = (mode === 'group') ? 'group-participant.html' : 'participant.html';
+      const joinUrl = `${baseUrl}/${participantPage}?room=${roomId}`;
+      const qrImage = await QRCode.toDataURL(joinUrl);
+
+      if (mode === 'group') {
+        rooms[roomId] = {
+          mode: 'group',
+          started: false,
+          currentQuestion: 0,
+          activeQuestionIndex: 0,
+          activeGroup: 0,
+          groupCount,
+          scores: Array(groupCount).fill(0),
+          groupNames: {},
+          groupSockets: {},
+          players: {},
+          questions: Array.isArray(questions) ? questions : [],
+          timer: null,
+          nextTimeout: null
+        };
+        for (let i = 0; i < groupCount; i++) {
+          rooms[roomId].groupSockets[i] = [];
+        }
+      } else {
+        rooms[roomId] = {
+          mode, // 'manual' or 'auto'
+          currentQuestion: 0,
+          activeQuestionIndex: 0,
+          players: {},
+          answers: {},
+          questions: Array.isArray(questions) ? questions : [],
+          timer: null,
+          nextTimeout: null
+        };
+      }
+
+      socket.emit('room_created', { roomId, qrCode: qrImage, mode, joinUrl });
+    } catch (err) {
+      console.error('Error in create_room:', err);
+      socket.emit('error_msg', 'Failed to create room.');
+    }
   });
 
   // 2. Individual Participant Joins
@@ -246,18 +284,25 @@ io.on('connection', (socket) => {
     if (!room) return socket.emit('error_msg', 'Room not found!');
 
     socket.join(roomId);
-    room.players[socket.id] = { id: socket.id, name, score: 0 };
+    room.players[socket.id] = {
+      id: socket.id,
+      name,
+      score: 0,
+      lastRoundTime: null,
+      lastRoundScore: 0,
+      totalTime: 0
+    };
 
     socket.emit('joined_successfully', { roomId, name, mode: room.mode });
     io.to(roomId).emit('player_list_update', Object.values(room.players));
   });
 
-  // Helper: Load Question for Individual Modes
+  // Helper: Load Question for Individual Modes ('manual' and 'auto')
   function loadQuestion(roomId) {
     const room = rooms[roomId];
     if (!room) return;
 
-    if (questionTimer) clearInterval(questionTimer);
+    clearRoomTimers(room);
 
     const totalQuestions = room.questions ? room.questions.length : 0;
     if (room.currentQuestion >= totalQuestions) {
@@ -267,87 +312,102 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const q = room.questions[room.currentQuestion];
+    const qIndex = room.currentQuestion;
+    const q = room.questions[qIndex];
+    room.activeQuestionIndex = qIndex;
     room.answers = {};
     room.questionStartTime = Date.now();
+    room.currentQuestion += 1;
 
     io.to(roomId).emit('display_question', {
-      questionNumber: room.currentQuestion + 1,
+      questionNumber: qIndex + 1,
       question: q.question,
       options: q.options
     });
 
-    room.currentQuestion += 1;
-
     let timeLeft = 15;
     io.to(roomId).emit('timer_tick', timeLeft);
 
-    questionTimer = setInterval(() => {
+    room.timer = setInterval(() => {
+      const activeRoom = rooms[roomId];
+      if (!activeRoom) {
+        clearInterval(room.timer);
+        return;
+      }
+
       timeLeft -= 1;
       io.to(roomId).emit('timer_tick', timeLeft);
 
       if (timeLeft <= 0) {
-        clearInterval(questionTimer);
-        const leaderboard = getSortedLeaderboard(room);
+        clearRoomTimers(activeRoom);
+        const leaderboard = getSortedLeaderboard(activeRoom);
         io.to(roomId).emit('time_up');
         io.to(roomId).emit('leaderboard_data', leaderboard);
 
-        if (room.mode === 'auto') {
-          setTimeout(() => { loadQuestion(roomId); }, 5000);
+        if (activeRoom.mode === 'auto') {
+          activeRoom.nextTimeout = setTimeout(() => {
+            loadQuestion(roomId);
+          }, 5000);
         }
       }
     }, 1000);
   }
 
-  // 4. Master clicks 'Next Question' (Handles both Individual and Group modes)
+  // 4. Master clicks 'Next Question' (Handles Individual and Group modes)
   socket.on('next_question', (roomId) => {
     const room = rooms[roomId];
     if (!room) return;
 
+    clearRoomTimers(room);
+
     if (room.mode === 'group') {
-      if (room.currentQuestion === undefined) room.currentQuestion = 0;
-      if (room.activeGroup === undefined) room.activeGroup = 0;
-      
-      startGroupTurnTimer(roomId, io);
+      if (!room.started) {
+        room.started = true;
+        room.currentQuestion = 0;
+        room.activeGroup = 0;
+        startGroupTurnTimer(roomId, io);
+      } else {
+        advanceGroupQuiz(roomId, io);
+      }
     } else {
       loadQuestion(roomId);
     }
   });
 
-  // 5. Start Group Game (Automated Rapid Fire Turn Rotation)
+  // 5. Start Group Game (Automated Turn Rotation)
   socket.on('start_group_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (room && room.mode === 'group') {
+      clearRoomTimers(room);
+      room.started = true;
       room.currentQuestion = 0;
       room.activeGroup = 0;
       startGroupTurnTimer(roomId, io);
     }
   });
 
-  // Helper: Safe Group Turn Progression (Prevents out-of-bounds/freezing issues)
+  // Helper: Safe Group Turn Progression
   function advanceGroupQuiz(roomId, ioServer) {
     const room = rooms[roomId];
     if (!room) return;
 
-    if (room.timer) clearInterval(room.timer);
+    clearRoomTimers(room);
 
     room.currentQuestion += 1;
     const totalQuestions = room.questions ? room.questions.length : 0;
 
     if (room.currentQuestion >= totalQuestions) {
+      room.started = false;
       const finalLeaderboard = getSortedLeaderboard(room);
-      ioServer.to(roomId).emit('group_quiz_ended', { 
-        scores: room.scores, 
-        groupNames: room.groupNames || {} 
+      ioServer.to(roomId).emit('group_quiz_ended', {
+        scores: room.scores,
+        groupNames: room.groupNames || {}
       });
       ioServer.to(roomId).emit('quiz_ended', finalLeaderboard);
       ioServer.to(roomId).emit('leaderboard_data', finalLeaderboard);
     } else {
       room.activeGroup = room.currentQuestion % room.groupCount;
-      
-      // Automatically broadcast live leaderboard update to admin screen on each turn change
       ioServer.to(roomId).emit('leaderboard_data', getSortedLeaderboard(room));
-      
       startGroupTurnTimer(roomId, ioServer);
     }
   }
@@ -355,24 +415,25 @@ io.on('connection', (socket) => {
   // 6. Submit Group Answer
   socket.on('submit_group_answer', ({ roomId, groupIndex, selectedOption }) => {
     const room = rooms[roomId];
-    if (!room || room.mode !== 'group' || groupIndex !== room.activeGroup) return;
+    const gIdx = parseInt(groupIndex, 10);
+    if (!room || room.mode !== 'group' || Number.isNaN(gIdx) || gIdx !== room.activeGroup) return;
 
-    if (room.timer) clearInterval(room.timer);
+    clearRoomTimers(room);
 
-    const currentQ = room.questions[room.currentQuestion];
+    const currentQ = room.questions && room.questions[room.currentQuestion];
     if (currentQ && selectedOption === currentQ.answer) {
-      room.scores[groupIndex] += 10; 
+      room.scores[gIdx] = (room.scores[gIdx] || 0) + 10;
     }
 
     advanceGroupQuiz(roomId, io);
   });
 
-  // Helper: Automated Rapid Fire Turn Timer for Groups
+  // Helper: Turn Timer for Groups (1 player per group across 2/3/4 groups)
   function startGroupTurnTimer(roomId, ioServer) {
     const room = rooms[roomId];
     if (!room) return;
 
-    if (room.timer) clearInterval(room.timer);
+    clearRoomTimers(room);
 
     const totalQuestions = room.questions ? room.questions.length : 0;
     if (room.currentQuestion >= totalQuestions) {
@@ -380,11 +441,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    room.activeQuestionIndex = room.currentQuestion;
     const currentQ = room.questions[room.currentQuestion];
-    
+
     ioServer.to(roomId).emit('group_game_state_update', {
+      questionNumber: room.currentQuestion + 1,
       activeGroup: room.activeGroup,
       scores: room.scores,
+      groupNames: room.groupNames || {},
       currentQuestionText: currentQ ? currentQ.question : 'Quiz Finished'
     });
 
@@ -402,15 +466,21 @@ io.on('connection', (socket) => {
       }
     }
 
-    let timeLeft = 10; // 10 seconds per rapid fire turn
+    let timeLeft = 10;
     ioServer.to(roomId).emit('timer_tick', timeLeft);
 
     room.timer = setInterval(() => {
+      const activeRoom = rooms[roomId];
+      if (!activeRoom) {
+        clearInterval(room.timer);
+        return;
+      }
+
       timeLeft -= 1;
       ioServer.to(roomId).emit('timer_tick', timeLeft);
 
       if (timeLeft <= 0) {
-        clearInterval(room.timer);
+        clearRoomTimers(activeRoom);
         advanceGroupQuiz(roomId, ioServer);
       }
     }, 1000);
@@ -419,14 +489,18 @@ io.on('connection', (socket) => {
   // 7. Individual Answer Submission
   socket.on('submit_answer', ({ roomId, selectedOption }) => {
     const room = rooms[roomId];
-    if (!room || room.answers[socket.id] !== undefined) return;
+    if (!room || !room.players[socket.id] || room.answers[socket.id] !== undefined) return;
 
     const startTime = room.questionStartTime || Date.now();
     const timeTaken = parseFloat(((Date.now() - startTime) / 1000).toFixed(2));
 
     room.answers[socket.id] = selectedOption;
 
-    const currentQ = questions[room.currentQuestion - 1];
+    const qIdx = room.activeQuestionIndex !== undefined
+      ? room.activeQuestionIndex
+      : Math.max(0, room.currentQuestion - 1);
+    const currentQ = room.questions && room.questions[qIdx];
+
     let scoreGained = 0;
     let isCorrect = false;
 
@@ -454,33 +528,32 @@ io.on('connection', (socket) => {
     const answeredPlayers = Object.keys(room.answers).length;
 
     if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
-      if (questionTimer) clearInterval(questionTimer);
+      clearRoomTimers(room);
 
       const leaderboard = getSortedLeaderboard(room);
       io.to(roomId).emit('time_up');
       io.to(roomId).emit('leaderboard_data', leaderboard);
 
       if (room.mode === 'auto') {
-        setTimeout(() => { loadQuestion(roomId); }, 5000);
+        room.nextTimeout = setTimeout(() => {
+          loadQuestion(roomId);
+        }, 5000);
       }
     }
   });
 
-  // 8. Show Leaderboard Manually
+  // 8. Show Leaderboard Manually (Does NOT increment currentQuestion)
   socket.on('show_leaderboard', (roomId) => {
-    if (questionTimer) clearInterval(questionTimer);
-
     const room = rooms[roomId];
     if (!room) return;
 
+    clearRoomTimers(room);
+
     const leaderboard = getSortedLeaderboard(room);
     io.to(roomId).emit('leaderboard_data', leaderboard);
-    socket.emit('leaderboard_data', leaderboard);
-
-    room.currentQuestion += 1;
   });
-  
-  // Get room group info (groupCount and already taken groups)
+
+  // Get room group info
   socket.on('get_group_room_info', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || room.mode !== 'group') {
@@ -492,46 +565,105 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Update Group Participant Join to block duplicate group selection
+  // Join Group Participant (Hides taken groups & strictly blocks another player from taking an occupied group)
   socket.on('join_group_participant', ({ roomId, name, groupIndex }) => {
     const room = rooms[roomId];
-    if (!room) return;
+    const gIdx = parseInt(groupIndex, 10);
+    if (!room || room.mode !== 'group' || Number.isNaN(gIdx) || gIdx < 0 || gIdx >= room.groupCount) {
+      return socket.emit('error_msg', 'Invalid group or room!');
+    }
 
     if (!room.groupNames) room.groupNames = {};
-    if (room.groupNames[groupIndex]) {
-      return socket.emit('error_msg', 'This group has already been selected by another team!');
+    if (!room.groupSockets) room.groupSockets = {};
+    if (!room.groupSockets[gIdx]) room.groupSockets[gIdx] = [];
+
+    // Prune disconnected sockets for this group
+    room.groupSockets[gIdx] = room.groupSockets[gIdx].filter((id) => {
+      const connected = Boolean(io.sockets.sockets.get(id));
+      if (!connected && room.players) {
+        delete room.players[id];
+      }
+      return connected;
+    });
+
+    // Reject if another live user already took this group
+    const activeSocketIds = room.groupSockets[gIdx];
+    const isSameSocket = activeSocketIds.includes(socket.id);
+    if (room.groupNames[gIdx] && activeSocketIds.length > 0 && !isSameSocket) {
+      socket.emit('update_available_groups', {
+        groupCount: room.groupCount,
+        groupNames: room.groupNames
+      });
+      return socket.emit('error_msg', `Group ${gIdx + 1} is already taken by ${room.groupNames[gIdx]}!`);
     }
 
     socket.join(roomId);
-    socket.join(`${roomId}-group-${groupIndex}`);
+    socket.join(`${roomId}-group-${gIdx}`);
 
-    room.groupNames[groupIndex] = name;
-
-    if (!room.players) room.players = {};
-    room.players[socket.id] = { 
-      id: socket.id, 
-      name: `${name} (Group ${parseInt(groupIndex) + 1})`, 
-      group: groupIndex,
-      score: room.scores[groupIndex] || 0 
-    };
-
-    if (room.groupSockets[groupIndex]) {
-      room.groupSockets[groupIndex].push(socket.id);
+    room.groupNames[gIdx] = name;
+    if (!isSameSocket) {
+      room.groupSockets[gIdx].push(socket.id);
     }
 
-    socket.emit('group_joined_success', { name, groupIndex });
-    
-    io.to(roomId).emit('player_list_update', Object.values(room.players));
+    if (!room.players) room.players = {};
+    room.players[socket.id] = {
+      id: socket.id,
+      name: `${name} (Group ${gIdx + 1})`,
+      group: gIdx,
+      score: room.scores[gIdx] || 0
+    };
 
+    socket.emit('group_joined_success', { name, groupIndex: gIdx });
+
+    io.to(roomId).emit('player_list_update', Object.values(room.players));
     io.to(roomId).emit('update_available_groups', {
       groupCount: room.groupCount,
       groupNames: room.groupNames
     });
+
+    // Sync mid-game turn state if already started
+    const totalQuestions = room.questions ? room.questions.length : 0;
+    if (room.started && room.currentQuestion < totalQuestions) {
+      const currentQ = room.questions[room.currentQuestion];
+      socket.emit('group_game_state_update', {
+        questionNumber: room.currentQuestion + 1,
+        activeGroup: room.activeGroup,
+        scores: room.scores,
+        groupNames: room.groupNames,
+        currentQuestionText: currentQ ? currentQ.question : 'Quiz Finished'
+      });
+
+      if (gIdx === room.activeGroup && currentQ) {
+        socket.emit('group_turn_active', {
+          questionNumber: room.currentQuestion + 1,
+          question: currentQ.question,
+          options: currentQ.options
+        });
+      } else {
+        socket.emit('group_turn_waiting', { activeGroup: room.activeGroup });
+      }
+    }
+  });
+
+  // Clean up disconnected player entries without breaking group scores
+  socket.on('disconnect', () => {
+    for (const roomId of Object.keys(rooms)) {
+      const room = rooms[roomId];
+      if (!room || !room.players) continue;
+
+      if (room.players[socket.id]) {
+        const player = room.players[socket.id];
+        delete room.players[socket.id];
+
+        if (room.mode === 'group' && player.group !== undefined && room.groupSockets && room.groupSockets[player.group]) {
+          room.groupSockets[player.group] = room.groupSockets[player.group].filter((id) => id !== socket.id);
+        }
+
+        io.to(roomId).emit('player_list_update', Object.values(room.players));
+      }
+    }
   });
 });
-
-const PORT = process.env.PORT || 4000;
-const HOST = '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
   const localIP = getLocalIpAddress();
