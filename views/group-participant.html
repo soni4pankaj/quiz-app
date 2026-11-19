@@ -61,6 +61,8 @@
 
   <!-- Audio Elements -->
   <audio id="bg-music" src="/sounds/quiz-bg.mp3" loop preload="auto"></audio>
+  <audio id="correct-sfx" src="/sounds/correct.mp3" preload="auto"></audio>
+  <audio id="wrong-sfx" src="/sounds/wrong.mp3" preload="auto"></audio>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -69,6 +71,8 @@
   const roomId = urlParams.get('room');
 
   const bgMusic = document.getElementById('bg-music');
+  const correctSfx = document.getElementById('correct-sfx');
+  const wrongSfx = document.getElementById('wrong-sfx');
 
   const joinSection = document.getElementById('join-section');
   const waitingSection = document.getElementById('waiting-section');
@@ -88,6 +92,21 @@
       bgMusic.volume = 1.0;
       bgMusic.play().catch(err => console.log('BG music play prevented:', err));
     }
+  }
+
+  function playSoundEffect(audioElement) {
+    if (!audioElement) return;
+
+    if (bgMusic && !bgMusic.paused) {
+      bgMusic.volume = 0.2;
+    }
+
+    audioElement.currentTime = 0;
+    audioElement.play().catch(err => console.log('SFX play error:', err));
+
+    audioElement.onended = () => {
+      if (bgMusic) bgMusic.volume = 1.0;
+    };
   }
 
   socket.emit('get_group_room_info', { roomId });
@@ -215,10 +234,25 @@
         socket.emit('submit_group_answer', { roomId, groupIndex: assignedGroup, selectedOption: idx });
         questionSection.classList.add('hidden');
         waitingSection.classList.remove('hidden');
-        waitMessage.textContent = 'Answer submitted! Waiting for next turn...';
+        waitMessage.textContent = 'Answer submitted! Checking result...';
       };
       optContainer.appendChild(btn);
     });
+  });
+
+  socket.on('group_answer_confirmed', ({ isCorrect, scoreGained, scores } = {}) => {
+    if (scores && scores[assignedGroup] !== undefined) {
+      document.getElementById('my-group-score').textContent = scores[assignedGroup];
+      document.getElementById('q-group-score').textContent = scores[assignedGroup];
+    }
+
+    if (isCorrect) {
+      playSoundEffect(correctSfx);
+      waitMessage.textContent = `Correct Answer! (+${scoreGained || 10} pts) 🎉 Waiting for next turn...`;
+    } else {
+      playSoundEffect(wrongSfx);
+      waitMessage.textContent = 'Incorrect Answer! ❌ Waiting for next turn...';
+    }
   });
 
   socket.on('group_turn_waiting', ({ activeGroup }) => {

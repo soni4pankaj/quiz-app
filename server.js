@@ -412,7 +412,7 @@ io.on('connection', (socket) => {
     }
   }
 
-  // 6. Submit Group Answer
+// 6. Submit Group Answer
   socket.on('submit_group_answer', ({ roomId, groupIndex, selectedOption }) => {
     const room = rooms[roomId];
     const gIdx = parseInt(groupIndex, 10);
@@ -421,12 +421,22 @@ io.on('connection', (socket) => {
     clearRoomTimers(room);
 
     const currentQ = room.questions && room.questions[room.currentQuestion];
-    if (currentQ && selectedOption === currentQ.answer) {
-      room.scores[gIdx] = (room.scores[gIdx] || 0) + 10;
+    const isCorrect = Boolean(currentQ && selectedOption === currentQ.answer);
+    const scoreGained = isCorrect ? 10 : 0;
+
+    if (isCorrect) {
+      room.scores[gIdx] = (room.scores[gIdx] || 0) + scoreGained;
     }
+
+    io.to(`${roomId}-group-${gIdx}`).emit('group_answer_confirmed', {
+      isCorrect,
+      scoreGained,
+      scores: room.scores
+    });
 
     advanceGroupQuiz(roomId, io);
   });
+  
 
   // Helper: Turn Timer for Groups (1 player per group across 2/3/4 groups)
   function startGroupTurnTimer(roomId, ioServer) {
