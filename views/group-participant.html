@@ -59,11 +59,16 @@
 
   </div>
 
+  <!-- Audio Elements -->
+  <audio id="bg-music" src="/sounds/quiz-bg.mp3" loop preload="auto"></audio>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
   const urlParams = new URLSearchParams(window.location.search);
   const roomId = urlParams.get('room');
+
+  const bgMusic = document.getElementById('bg-music');
 
   const joinSection = document.getElementById('join-section');
   const waitingSection = document.getElementById('waiting-section');
@@ -76,6 +81,14 @@
   let assignedGroup = 0;
   let latestGroupCount = 2;
   let latestGroupNames = {};
+
+  function ensureBgMusicPlaying() {
+    if (!bgMusic) return;
+    if (bgMusic.paused) {
+      bgMusic.volume = 1.0;
+      bgMusic.play().catch(err => console.log('BG music play prevented:', err));
+    }
+  }
 
   socket.emit('get_group_room_info', { roomId });
 
@@ -96,7 +109,6 @@
 
     let availableCount = 0;
 
-    // Only show groups that have NOT been taken yet
     for (let i = 0; i < latestGroupCount; i++) {
       const isTaken = Boolean(latestGroupNames && latestGroupNames[i]);
       if (!isTaken) {
@@ -151,6 +163,8 @@
       return;
     }
 
+    ensureBgMusicPlaying();
+
     assignedGroup = chosenGroup;
     errorMsg.textContent = '';
     socket.emit('join_group_participant', { roomId, name, groupIndex: assignedGroup });
@@ -167,6 +181,7 @@
     waitingSection.classList.remove('hidden');
     document.getElementById('display-name').textContent = `${name} (Group ${assignedGroup + 1})`;
     waitMessage.textContent = 'Successfully joined! Waiting for the quiz master to start...';
+    ensureBgMusicPlaying();
   });
 
   socket.on('group_game_state_update', (state) => {
@@ -183,6 +198,7 @@
   });
 
   socket.on('group_turn_active', (data) => {
+    ensureBgMusicPlaying();
     waitingSection.classList.add('hidden');
     questionSection.classList.remove('hidden');
 
@@ -212,6 +228,11 @@
   });
 
   socket.on('group_quiz_ended', ({ scores, groupNames }) => {
+    if (bgMusic) {
+      bgMusic.pause();
+      bgMusic.currentTime = 0;
+    }
+
     questionSection.classList.add('hidden');
     waitingSection.classList.remove('hidden');
 
