@@ -28,26 +28,61 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
-const questionsFilePath = path.join(__dirname, 'quiz-questions.json');
-let questions = [];
+const ASSESSMENT_DIR = path.join(__dirname, 'assessment');
+
+const MODE_QUESTION_FILES = {
+  manual: 'manual.json',
+  auto: 'rapid.json',
+  rapid: 'rapid.json',
+  group: 'group.json',
+  default: 'default.json'
+};
+
 const rooms = {};
 
-// Helper: Read questions from JSON file
-function readQuestionsFromFile() {
-  if (!fs.existsSync(questionsFilePath)) {
+// Helper: Resolve question file path inside ./assessment for a given mode
+function resolveQuestionFile(mode = 'manual') {
+  const key = String(mode || 'manual').toLowerCase();
+  const fileName = MODE_QUESTION_FILES[key] || MODE_QUESTION_FILES.default;
+  const jsonPath = path.join(ASSESSMENT_DIR, fileName);
+
+  if (fs.existsSync(jsonPath)) {
+    return jsonPath;
+  }
+
+  // Fallback if files were saved without .json extension
+  const extensionlessName = fileName.replace(/\.json$/i, '');
+  const noExtPath = path.join(ASSESSMENT_DIR, extensionlessName);
+  if (fs.existsSync(noExtPath)) {
+    return noExtPath;
+  }
+
+  return jsonPath;
+}
+
+// Helper: Read questions for a specific mode from ./assessment
+function readQuestionsFromFile(mode = 'manual') {
+  const targetPath = resolveQuestionFile(mode);
+
+  if (!fs.existsSync(targetPath)) {
+    fs.mkdirSync(ASSESSMENT_DIR, { recursive: true });
     const defaultData = [
       { id: 1, question: "Which planet is known as the Red Planet?", options: ["Earth", "Mars", "Jupiter", "Venus"], answer: 1 }
     ];
-    fs.writeFileSync(questionsFilePath, JSON.stringify(defaultData, null, 2));
+    fs.writeFileSync(targetPath, JSON.stringify(defaultData, null, 2));
     return defaultData;
   }
-  const rawData = fs.readFileSync(questionsFilePath, 'utf8');
-  return JSON.parse(rawData);
+
+  const rawData = fs.readFileSync(targetPath, 'utf8');
+  const parsed = JSON.parse(rawData);
+  return Array.isArray(parsed) ? parsed : (parsed.questions || []);
 }
 
-// Helper: Save questions to JSON file
-function saveQuestionsToFile(questionsData) {
-  fs.writeFileSync(questionsFilePath, JSON.stringify(questionsData, null, 2));
+// Helper: Save questions for a specific mode to ./assessment
+function saveQuestionsToFile(questionsData, mode = 'manual') {
+  fs.mkdirSync(ASSESSMENT_DIR, { recursive: true });
+  const targetPath = resolveQuestionFile(mode);
+  fs.writeFileSync(targetPath, JSON.stringify(questionsData, null, 2));
 }
 
 // Helper: Clear all active timers/timeouts on a room safely
@@ -186,7 +221,8 @@ app.get('/logout', (req, res) => {
 // ==========================================
 app.get('/api/questions', (req, res) => {
   try {
-    res.json({ success: true, questions: readQuestionsFromFile() });
+    const mode = req.query.mode || 'manual';
+    res.json({ success: true, mode, questions: readQuestionsFromFile(mode) });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to read questions' });
   }
@@ -194,15 +230,17 @@ app.get('/api/questions', (req, res) => {
 
 app.post('/api/questions', (req, res) => {
   try {
-    saveQuestionsToFile(req.body);
-    questions = readQuestionsFromFile();
-    res.json({ success: true, message: 'Questions updated successfully!' });
+    const mode = req.query.mode || (req.body && !Array.isArray(req.body) ? req.body.mode : null) || 'manual';
+    const payload = Array.isArray(req.body) ? req.body : req.body.questions;
+    if (!Array.isArray(payload)) {
+      return res.status(400).json({ success: false, message: 'Questions must be an array' });
+    }
+    saveQuestionsToFile(payload, mode);
+    res.json({ success: true, mode, message: 'Questions updated successfully!' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to save questions' });
   }
 });
-
-questions = readQuestionsFromFile();
 
 // ==========================================
 // SOCKET.IO REAL-TIME GAME LOGIC
@@ -222,7 +260,7 @@ io.on('connection', (socket) => {
         clearRoomTimers(rooms[roomId]);
       }
 
-      questions = readQuestionsFromFile();
+      const modeQuestions = readQuestionsFromFile(mode);
       socket.join(roomId);
 
       let baseUrl;
@@ -251,7 +289,7 @@ io.on('connection', (socket) => {
           groupNames: {},
           groupSockets: {},
           players: {},
-          questions: Array.isArray(questions) ? questions : [],
+          questions: Array.isArray(modeQuestions) ? modeQuestions : [],
           timer: null,
           nextTimeout: null
         };
@@ -265,7 +303,7 @@ io.on('connection', (socket) => {
           activeQuestionIndex: 0,
           players: {},
           answers: {},
-          questions: Array.isArray(questions) ? questions : [],
+          questions: Array.isArray(modeQuestions) ? modeQuestions : [],
           timer: null,
           nextTimeout: null
         };
@@ -412,7 +450,7 @@ io.on('connection', (socket) => {
     }
   }
 
-// 6. Submit Group Answer
+  // 6. Submit Group Answer
   socket.on('submit_group_answer', ({ roomId, groupIndex, selectedOption }) => {
     const room = rooms[roomId];
     const gIdx = parseInt(groupIndex, 10);
@@ -436,7 +474,6 @@ io.on('connection', (socket) => {
 
     advanceGroupQuiz(roomId, io);
   });
-  
 
   // Helper: Turn Timer for Groups (1 player per group across 2/3/4 groups)
   function startGroupTurnTimer(roomId, ioServer) {
