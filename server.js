@@ -674,55 +674,63 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Join Group Participant (Hides taken groups & strictly blocks another player from taking an occupied group)
+  // Join Group Participant (Supports Rejoin After Call & Re-syncs Active Turn or Final Standings)
   socket.on('join_group_participant', ({ roomId, name, groupIndex }) => {
     const room = rooms[roomId];
     const gIdx = parseInt(groupIndex, 10);
+    const cleanName = String(name || '').trim();
+
     if (!room || room.mode !== 'group' || Number.isNaN(gIdx) || gIdx < 0 || gIdx >= room.groupCount) {
       return socket.emit('error_msg', 'Invalid group or room!');
+    }
+    if (!cleanName) {
+      return socket.emit('error_msg', 'Please enter your name!');
     }
 
     if (!room.groupNames) room.groupNames = {};
     if (!room.groupSockets) room.groupSockets = {};
     if (!room.groupSockets[gIdx]) room.groupSockets[gIdx] = [];
+    if (!room.players) room.players = {};
 
     // Prune disconnected sockets for this group
     room.groupSockets[gIdx] = room.groupSockets[gIdx].filter((id) => {
       const connected = Boolean(io.sockets.sockets.get(id));
-      if (!connected && room.players) {
+      if (!connected && room.players[id] && room.players[id].group === gIdx) {
         delete room.players[id];
       }
       return connected;
     });
 
-    // Reject if another live user already took this group
     const activeSocketIds = room.groupSockets[gIdx];
-    const isSameSocket = activeSocketIds.includes(socket.id);
-    if (room.groupNames[gIdx] && activeSocketIds.length > 0 && !isSameSocket) {
+    const existingGroupName = String(room.groupNames[gIdx] || '').trim();
+    const isReturningSamePlayer =
+      existingGroupName.toLowerCase() === cleanName.toLowerCase();
+
+    // Reject only if a different live user already took this group
+    if (existingGroupName && activeSocketIds.length > 0 && !isReturningSamePlayer) {
       socket.emit('update_available_groups', {
         groupCount: room.groupCount,
         groupNames: room.groupNames
       });
-      return socket.emit('error_msg', `Group ${gIdx + 1} is already taken by ${room.groupNames[gIdx]}!`);
+      return socket.emit('error_msg', `Group ${gIdx + 1} is already taken by ${existingGroupName}!`);
     }
 
     socket.join(roomId);
     socket.join(`${roomId}-group-${gIdx}`);
 
-    room.groupNames[gIdx] = name;
-    if (!isSameSocket) {
+    room.groupNames[gIdx] = cleanName;
+    if (!room.groupSockets[gIdx].includes(socket.id)) {
       room.groupSockets[gIdx].push(socket.id);
     }
 
-    if (!room.players) room.players = {};
     room.players[socket.id] = {
       id: socket.id,
-      name: `${name} (Group ${gIdx + 1})`,
+      name: `${cleanName} (Group ${gIdx + 1})`,
       group: gIdx,
-      score: room.scores[gIdx] || 0
+      score: (room.scores && room.scores[gIdx]) || 0
     };
 
-    socket.emit('group_joined_success', { name, groupIndex: gIdx });
+    socket.emit('group_joined_success', { name: cleanName, groupIndex: gIdx });
 
     io.to(roomId).emit('player_list_update', Object.values(room.players));
     io.to(roomId).emit('update_available_groups', {
@@ -730,8 +738,20 @@ io.on('connection', (socket) => {
       groupNames: room.groupNames
     });
 
-    // Sync mid-game turn state if already started
     const totalQuestions = room.questions ? room.questions.length : 0;
+
+    if (room.ended) {
+      const finalLeaderboard = getSortedLeaderboard(room);
+      socket.emit('group_quiz_ended', {
+        scores: room.scores,
+        groupNames: room.groupNames || {}
+      });
+      socket.emit('quiz_ended', finalLeaderboard);
+      socket.emit('leaderboard_data', finalLeaderboard);
+      return;
+    }
+
+    // Sync mid-game turn state if already started
     if (room.started && room.currentQuestion < totalQuestions) {
       const currentQ = room.questions[room.currentQuestion];
       socket.emit('group_game_state_update', {

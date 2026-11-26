@@ -28,26 +28,61 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
-const questionsFilePath = path.join(__dirname, 'quiz-questions.json');
-let questions = [];
+const ASSESSMENT_DIR = path.join(__dirname, 'assessment');
+
+const MODE_QUESTION_FILES = {
+  manual: 'manual.json',
+  auto: 'rapid.json',
+  rapid: 'rapid.json',
+  group: 'group.json',
+  default: 'default.json'
+};
+
 const rooms = {};
 
-// Helper: Read questions from JSON file
-function readQuestionsFromFile() {
-  if (!fs.existsSync(questionsFilePath)) {
+// Helper: Resolve question file path inside ./assessment for a given mode
+function resolveQuestionFile(mode = 'manual') {
+  const key = String(mode || 'manual').toLowerCase();
+  const fileName = MODE_QUESTION_FILES[key] || MODE_QUESTION_FILES.default;
+  const jsonPath = path.join(ASSESSMENT_DIR, fileName);
+
+  if (fs.existsSync(jsonPath)) {
+    return jsonPath;
+  }
+
+  // Fallback if files were saved without .json extension
+  const extensionlessName = fileName.replace(/\.json$/i, '');
+  const noExtPath = path.join(ASSESSMENT_DIR, extensionlessName);
+  if (fs.existsSync(noExtPath)) {
+    return noExtPath;
+  }
+
+  return jsonPath;
+}
+
+// Helper: Read questions for a specific mode from ./assessment
+function readQuestionsFromFile(mode = 'manual') {
+  const targetPath = resolveQuestionFile(mode);
+
+  if (!fs.existsSync(targetPath)) {
+    fs.mkdirSync(ASSESSMENT_DIR, { recursive: true });
     const defaultData = [
       { id: 1, question: "Which planet is known as the Red Planet?", options: ["Earth", "Mars", "Jupiter", "Venus"], answer: 1 }
     ];
-    fs.writeFileSync(questionsFilePath, JSON.stringify(defaultData, null, 2));
+    fs.writeFileSync(targetPath, JSON.stringify(defaultData, null, 2));
     return defaultData;
   }
-  const rawData = fs.readFileSync(questionsFilePath, 'utf8');
-  return JSON.parse(rawData);
+
+  const rawData = fs.readFileSync(targetPath, 'utf8');
+  const parsed = JSON.parse(rawData);
+  return Array.isArray(parsed) ? parsed : (parsed.questions || []);
 }
 
-// Helper: Save questions to JSON file
-function saveQuestionsToFile(questionsData) {
-  fs.writeFileSync(questionsFilePath, JSON.stringify(questionsData, null, 2));
+// Helper: Save questions for a specific mode to ./assessment
+function saveQuestionsToFile(questionsData, mode = 'manual') {
+  fs.mkdirSync(ASSESSMENT_DIR, { recursive: true });
+  const targetPath = resolveQuestionFile(mode);
+  fs.writeFileSync(targetPath, JSON.stringify(questionsData, null, 2));
 }
 
 // Helper: Clear all active timers/timeouts on a room safely
@@ -186,7 +221,8 @@ app.get('/logout', (req, res) => {
 // ==========================================
 app.get('/api/questions', (req, res) => {
   try {
-    res.json({ success: true, questions: readQuestionsFromFile() });
+    const mode = req.query.mode || 'manual';
+    res.json({ success: true, mode, questions: readQuestionsFromFile(mode) });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to read questions' });
   }
@@ -194,15 +230,17 @@ app.get('/api/questions', (req, res) => {
 
 app.post('/api/questions', (req, res) => {
   try {
-    saveQuestionsToFile(req.body);
-    questions = readQuestionsFromFile();
-    res.json({ success: true, message: 'Questions updated successfully!' });
+    const mode = req.query.mode || (req.body && !Array.isArray(req.body) ? req.body.mode : null) || 'manual';
+    const payload = Array.isArray(req.body) ? req.body : req.body.questions;
+    if (!Array.isArray(payload)) {
+      return res.status(400).json({ success: false, message: 'Questions must be an array' });
+    }
+    saveQuestionsToFile(payload, mode);
+    res.json({ success: true, mode, message: 'Questions updated successfully!' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to save questions' });
   }
 });
-
-questions = readQuestionsFromFile();
 
 // ==========================================
 // SOCKET.IO REAL-TIME GAME LOGIC
@@ -222,7 +260,7 @@ io.on('connection', (socket) => {
         clearRoomTimers(rooms[roomId]);
       }
 
-      questions = readQuestionsFromFile();
+      const modeQuestions = readQuestionsFromFile(mode);
       socket.join(roomId);
 
       let baseUrl;
@@ -243,6 +281,7 @@ io.on('connection', (socket) => {
         rooms[roomId] = {
           mode: 'group',
           started: false,
+          ended: false,
           currentQuestion: 0,
           activeQuestionIndex: 0,
           activeGroup: 0,
@@ -251,7 +290,7 @@ io.on('connection', (socket) => {
           groupNames: {},
           groupSockets: {},
           players: {},
-          questions: Array.isArray(questions) ? questions : [],
+          questions: Array.isArray(modeQuestions) ? modeQuestions : [],
           timer: null,
           nextTimeout: null
         };
@@ -261,11 +300,12 @@ io.on('connection', (socket) => {
       } else {
         rooms[roomId] = {
           mode, // 'manual' or 'auto'
+          ended: false,
           currentQuestion: 0,
           activeQuestionIndex: 0,
           players: {},
           answers: {},
-          questions: Array.isArray(questions) ? questions : [],
+          questions: Array.isArray(modeQuestions) ? modeQuestions : [],
           timer: null,
           nextTimeout: null
         };
@@ -278,23 +318,75 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2. Individual Participant Joins
+  // 2. Individual Participant Joins (Supports Rejoin After Phone Call / Disconnect)
   socket.on('join_room', ({ roomId, name }) => {
     const room = rooms[roomId];
     if (!room) return socket.emit('error_msg', 'Room not found!');
 
-    socket.join(roomId);
-    room.players[socket.id] = {
-      id: socket.id,
-      name,
-      score: 0,
-      lastRoundTime: null,
-      lastRoundScore: 0,
-      totalTime: 0
-    };
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return socket.emit('error_msg', 'Please enter a valid name!');
 
-    socket.emit('joined_successfully', { roomId, name, mode: room.mode });
+    socket.join(roomId);
+
+    const existingEntry = Object.entries(room.players).find(
+      ([, p]) => String(p.name || '').trim().toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existingEntry) {
+      const [oldSocketId, oldPlayer] = existingEntry;
+      delete room.players[oldSocketId];
+
+      // Transfer active-question answer tracking to the new socket ID
+      if (room.answers && Object.prototype.hasOwnProperty.call(room.answers, oldSocketId)) {
+        room.answers[socket.id] = room.answers[oldSocketId];
+        delete room.answers[oldSocketId];
+      }
+
+      room.players[socket.id] = {
+        ...oldPlayer,
+        id: socket.id,
+        name: cleanName,
+        disconnected: false
+      };
+    } else {
+      room.players[socket.id] = {
+        id: socket.id,
+        name: cleanName,
+        score: 0,
+        lastRoundTime: null,
+        lastRoundScore: 0,
+        totalTime: 0,
+        disconnected: false
+      };
+    }
+
+    socket.emit('joined_successfully', { roomId, name: cleanName, mode: room.mode });
     io.to(roomId).emit('player_list_update', Object.values(room.players));
+
+    // Sync participant screen if they rejoin mid-quiz or after the quiz ends
+    const totalQuestions = room.questions ? room.questions.length : 0;
+    if (room.ended || (totalQuestions > 0 && room.currentQuestion >= totalQuestions && room.timer === null)) {
+      const finalLeaderboard = getSortedLeaderboard(room);
+      socket.emit('leaderboard_data', finalLeaderboard);
+      socket.emit('quiz_ended', finalLeaderboard);
+    } else if (room.currentQuestion > 0 && room.activeQuestionIndex !== undefined && room.questions[room.activeQuestionIndex]) {
+      const q = room.questions[room.activeQuestionIndex];
+      socket.emit('display_question', {
+        questionNumber: room.activeQuestionIndex + 1,
+        question: q.question,
+        options: q.options
+      });
+
+      const alreadyAnswered = room.answers && Object.prototype.hasOwnProperty.call(room.answers, socket.id);
+      if (alreadyAnswered) {
+        const playerObj = room.players[socket.id];
+        socket.emit('answer_confirmed', {
+          timeTaken: playerObj.lastRoundTime ?? 0,
+          scoreGained: playerObj.lastRoundScore ?? 0,
+          isCorrect: (playerObj.lastRoundScore ?? 0) > 0
+        });
+      }
+    }
   });
 
   // Helper: Load Question for Individual Modes ('manual' and 'auto')
@@ -306,6 +398,7 @@ io.on('connection', (socket) => {
 
     const totalQuestions = room.questions ? room.questions.length : 0;
     if (room.currentQuestion >= totalQuestions) {
+      room.ended = true;
       const finalLeaderboard = getSortedLeaderboard(room);
       io.to(roomId).emit('quiz_ended', finalLeaderboard);
       io.to(roomId).emit('leaderboard_data', finalLeaderboard);
@@ -363,6 +456,7 @@ io.on('connection', (socket) => {
     if (room.mode === 'group') {
       if (!room.started) {
         room.started = true;
+        room.ended = false;
         room.currentQuestion = 0;
         room.activeGroup = 0;
         startGroupTurnTimer(roomId, io);
@@ -380,6 +474,7 @@ io.on('connection', (socket) => {
     if (room && room.mode === 'group') {
       clearRoomTimers(room);
       room.started = true;
+      room.ended = false;
       room.currentQuestion = 0;
       room.activeGroup = 0;
       startGroupTurnTimer(roomId, io);
@@ -398,6 +493,7 @@ io.on('connection', (socket) => {
 
     if (room.currentQuestion >= totalQuestions) {
       room.started = false;
+      room.ended = true;
       const finalLeaderboard = getSortedLeaderboard(room);
       ioServer.to(roomId).emit('group_quiz_ended', {
         scores: room.scores,
@@ -412,7 +508,7 @@ io.on('connection', (socket) => {
     }
   }
 
-// 6. Submit Group Answer
+  // 6. Submit Group Answer
   socket.on('submit_group_answer', ({ roomId, groupIndex, selectedOption }) => {
     const room = rooms[roomId];
     const gIdx = parseInt(groupIndex, 10);
@@ -436,7 +532,6 @@ io.on('connection', (socket) => {
 
     advanceGroupQuiz(roomId, io);
   });
-  
 
   // Helper: Turn Timer for Groups (1 player per group across 2/3/4 groups)
   function startGroupTurnTimer(roomId, ioServer) {
@@ -534,8 +629,12 @@ io.on('connection', (socket) => {
 
     socket.emit('answer_confirmed', { timeTaken, scoreGained, isCorrect });
 
-    const totalPlayers = Object.keys(room.players).length;
-    const answeredPlayers = Object.keys(room.answers).length;
+    // Count connected players so a player on a phone call doesn't permanently block auto-advance
+    const connectedPlayers = Object.values(room.players).filter((p) => !p.disconnected);
+    const totalPlayers = connectedPlayers.length;
+    const answeredPlayers = connectedPlayers.filter(
+      (p) => room.answers[p.id] !== undefined
+    ).length;
 
     if (answeredPlayers >= totalPlayers && totalPlayers > 0) {
       clearRoomTimers(room);
@@ -655,22 +754,25 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Clean up disconnected player entries without breaking group scores
+  // Clean up disconnected player entries without breaking group scores or individual leaderboard history
   socket.on('disconnect', () => {
     for (const roomId of Object.keys(rooms)) {
       const room = rooms[roomId];
-      if (!room || !room.players) continue;
+      if (!room || !room.players || !room.players[socket.id]) continue;
 
-      if (room.players[socket.id]) {
-        const player = room.players[socket.id];
+      const player = room.players[socket.id];
+
+      if (room.mode === 'group') {
         delete room.players[socket.id];
-
-        if (room.mode === 'group' && player.group !== undefined && room.groupSockets && room.groupSockets[player.group]) {
+        if (player.group !== undefined && room.groupSockets && room.groupSockets[player.group]) {
           room.groupSockets[player.group] = room.groupSockets[player.group].filter((id) => id !== socket.id);
         }
-
-        io.to(roomId).emit('player_list_update', Object.values(room.players));
+      } else {
+        // Keep individual participant in room.players so their score stays on the final leaderboard
+        player.disconnected = true;
       }
+
+      io.to(roomId).emit('player_list_update', Object.values(room.players));
     }
   });
 });
