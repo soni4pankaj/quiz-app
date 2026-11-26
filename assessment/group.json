@@ -1,178 +1,98 @@
 [
   {
     "id": 1,
-    "question": "Which is the national aquatic animal of India?",
-    "options": [
-      "Ganges River Dolphin",
-      "Olive Ridley Sea Turtle",
-      "Gharial",
-      "Dugong"
-    ],
-    "answer": 0
-  },
-  {
-    "id": 2,
-    "question": "Which state in India has the longest coastline?",
-    "options": [
-      "Tamil Nadu",
-      "Gujarat",
-      "Maharashtra",
-      "Andhra Pradesh"
-    ],
+    "question": "Which country won the 2026 FIFA World Cup?",
+    "options": ["Argentina", "Spain", "France", "England"],
     "answer": 1
   },
   {
+    "id": 2,
+    "question": "Which city hosted the 2026 Commonwealth Games?",
+    "options": ["Birmingham", "Melbourne", "Glasgow", "Toronto"],
+    "answer": 2
+  },
+  {
     "id": 3,
-    "question": "The classical dance form 'Kathakali' originated in which Indian state?",
-    "options": [
-      "Tamil Nadu",
-      "Karnataka",
-      "Kerala",
-      "Andhra Pradesh"
-    ],
+    "question": "How many teams participated in the expanded 2026 FIFA World Cup?",
+    "options": ["32", "40", "48", "64"],
     "answer": 2
   },
   {
     "id": 4,
-    "question": "Who was the first President of independent India?",
-    "options": [
-      "Dr. S. Radhakrishnan",
-      "Dr. Rajendra Prasad",
-      "Pandit Jawaharlal Nehru",
-      "Sardar Vallabhbhai Patel"
-    ],
-    "answer": 1
+    "question": "Who won the 2026 Nobel Prize in Physics for contributions to the IceCube Neutrino Observatory?",
+    "options": ["Francis Halzen", "Karl Deisseroth", "Henri B. Kagan", "Michael Woodford"],
+    "answer": 0
   },
   {
     "id": 5,
-    "question": "Which line separates India and China?",
-    "options": [
-      "Radcliffe Line",
-      "Durand Line",
-      "McMahon Line",
-      "24th Parallel"
-    ],
-    "answer": 2
+    "question": "Who won the 2026 Nobel Peace Prize for efforts promoting peace and international law?",
+    "options": ["Anne Carson", "Navi Pillay", "Maria Corina Machado", "Kenso Soai"],
+    "answer": 1
   },
   {
     "id": 6,
-    "question": "Which Indian city is known as the 'Pink City'?",
-    "options": [
-      "Udaipur",
-      "Jodhpur",
-      "Jaipur",
-      "Jaisalmer"
-    ],
+    "question": "Which film won Best Picture at the 98th Academy Awards (Oscars) in 2026?",
+    "options": ["Sinners", "Hamnet", "One Battle After Another", "Frankenstein"],
     "answer": 2
   },
   {
     "id": 7,
-    "question": "Which fundamental right was removed from the list of Fundamental Rights by the 44th Constitutional Amendment Act, 1978?",
-    "options": [
-      "Right to Freedom of Speech",
-      "Right to Equality",
-      "Right to Constitutional Remedies",
-      "Right to Property"
-    ],
-    "answer": 3
-  },
-  {
-    "id": 8,
-    "question": "Gir National Park in Gujarat is famous for preserving which animal?",
-    "options": [
-      "Bengal Tiger",
-      "Asiatic Lion",
-      "One-horned Rhinoceros",
-      "Snow Leopard"
-    ],
+    "question": "Who won Best Actor at the 2026 Academy Awards for his performance in Sinners?",
+    "options": ["Paul Thomas Anderson", "Michael B. Jordan", "Sean Penn", "Timothée Chalamet"],
     "answer": 1
   },
   {
+    "id": 8,
+    "question": "Who won the 2026 Nobel Prize in Literature?",
+    "options": ["Anne Carson", "Laszlo Krasznahorkai", "Navi Pillay", "Jessie Buckley"],
+    "answer": 0
+  },
+  {
     "id": 9,
-    "question": "The historic Dandi March led by Mahatma Gandhi was associated with which movement?",
-    "options": [
-      "Non-Cooperation Movement",
-      "Civil Disobedience Movement",
-      "Quit India Movement",
-      "Swadeshi Movement"
-    ],
+    "question": "Which team won the 2026 ICC Women's Emerging Nations Trophy final in November 2026?",
+    "options": ["Ireland", "Sri Lanka", "Netherlands", "Pakistan"],
     "answer": 1
   },
   {
     "id": 10,
-    "question": "Which river is also known as the 'Dakshin Ganga' (Ganga of the South)?",
-    "options": [
-      "Krishna",
-      "Kaveri",
-      "Godavari",
-      "Narmada"
-    ],
-    "answer": 2
+    "question": "Former ISRO Chairman Dr. S. Somanath was appointed to which body's Central Board in August 2026?",
+    "options": ["SEBI", "Reserve Bank of India (RBI)", "NITI Aayog", "ISRO Council"],
+    "answer": 1
   },
   {
     "id": 11,
-    "question": "Who was the first Indian to win a Nobel Prize?",
-    "options": [
-      "C. V. Raman",
-      "Rabindranath Tagore",
-      "Mother Teresa",
-      "Hargobind Khorana"
-    ],
-    "answer": 1
+    "question": "Which country is the largest producer of coffee in the world?",
+    "options": ["Vietnam", "Colombia", "Brazil", "Ethiopia"],
+    "answer": 2
   },
   {
     "id": 12,
-    "question": "Which state is known as the 'Spices Garden of India'?",
-    "options": [
-      "Assam",
-      "Kerala",
-      "Karnataka",
-      "Andhra Pradesh"
-    ],
-    "answer": 1
+    "question": "Which gas makes up the largest percentage of Earth's atmosphere?",
+    "options": ["Oxygen", "Argon", "Carbon Dioxide", "Nitrogen"],
+    "answer": 3
   },
   {
     "id": 13,
-    "question": "Which Indian state has the highest forest cover by area?",
-    "options": [
-      "Arunachal Pradesh",
-      "Madhya Pradesh",
-      "Chhattisgarh",
-      "Odisha"
-    ],
+    "question": "Which river flows through the city of Varanasi?",
+    "options": ["Yamuna", "Ganga", "Godavari", "Narmada"],
     "answer": 1
   },
   {
     "id": 14,
-    "question": "In which year did India adopt its Constitution?",
-    "options": [
-      "1947",
-      "1948",
-      "1950",
-      "1952"
-    ],
+    "question": "What is the chemical symbol for gold?",
+    "options": ["Go", "Gd", "Au", "Ag"],
     "answer": 2
   },
   {
     "id": 15,
-    "question": "Which mountain peak is the highest peak located entirely within India?",
-    "options": [
-      "Kangchenjunga",
-      "Nanda Devi",
-      "K2 (Godwin-Austen)",
-      "Kamet"
-    ],
-    "answer": 1
+    "question": "Which instrument is used to measure atmospheric pressure?",
+    "options": ["Barometer", "Hygrometer", "Anemometer", "Seismograph"],
+    "answer": 0
   },
   {
     "id": 16,
-    "question": "Which planet is known as the Red Planet?",
-    "options": [
-      "Earth",
-      "Mars",
-      "Jupiter",
-      "Venus"
-    ],
-    "answer": 1
+    "question": "Which ocean is the deepest on Earth?",
+    "options": ["Indian Ocean", "Atlantic Ocean", "Arctic Ocean", "Pacific Ocean"],
+    "answer": 3
   }
 ]
